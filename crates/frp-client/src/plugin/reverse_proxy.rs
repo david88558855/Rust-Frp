@@ -491,15 +491,20 @@ mod tests {
         assert_eq!(canonical_host("example.com."), "example.com");
         assert_eq!(canonical_host("[::1]:8080"), "::1");
         assert_eq!(canonical_host("127.0.0.1:80"), "127.0.0.1");
-        // A bare IPv6 literal has colons but no port, so nothing is stripped.
+        assert_eq!(canonical_host(""), "");
+        // `hasPort` only calls a bracketed string a host:port pair when it
+        // contains `]:`, so a bare IPv6 literal is left alone either way. The
+        // colons in `[::1]` are not a port and the result is *not* empty.
         assert_eq!(canonical_host("::1"), "::1");
-        // `hasPort` is false for `a:b:c` unless it is bracketed, so the whole
-        // thing is treated as a host.
+        assert_eq!(canonical_host("[::1]"), "[::1]");
+        // `hasPort` is false for `a:b:c` too: more than one colon, and it does
+        // not start with a bracket.
         assert_eq!(canonical_host("a:b:c"), "a:b:c");
-        // A bracketed address with no port is a `SplitHostPort` error, and the
-        // caller ignores it, so the result is the empty string.
-        assert_eq!(canonical_host("[::1]"), "");
+        // These are the shapes that reach `net.SplitHostPort` and fail it. The
+        // Go caller ignores the error and keeps the empty string it got back,
+        // which is what disables the misdirected check below.
         assert_eq!(canonical_host("host:notaport"), "");
+        assert_eq!(canonical_host("[::1]:notaport"), "");
     }
 
     #[test]
@@ -510,14 +515,16 @@ mod tests {
         assert!(!is_misdirected(Some("front.example"), "front.example"));
         assert!(!is_misdirected(Some("Front.Example"), "front.example:443"));
         assert!(!is_misdirected(Some("front.example."), "front.example"));
+        assert!(!is_misdirected(Some("[::1]:8080"), "[::1]:443"));
         // The case the guard exists for.
         assert!(is_misdirected(Some("any.sni"), "front.example"));
         assert!(is_misdirected(Some("front.example"), "other.example"));
         // A request with no usable Host is a mismatch as soon as an SNI was
         // sent: upstream compares against the empty string it canonicalised to.
         assert!(is_misdirected(Some("front.example"), ""));
-        // ... but an SNI that canonicalises to nothing disables the check.
-        assert!(!is_misdirected(Some("[::1]"), "anything.test"));
+        // Only an SNI that fails to canonicalise disables the check -- an
+        // unusual spelling, but the one upstream lets through.
+        assert!(!is_misdirected(Some("front.example:notaport"), "anything.test"));
     }
 
     #[test]
