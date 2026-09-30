@@ -49,21 +49,60 @@ cargo test --workspace         # protocol, crypto and framing unit tests
 CI (`.github/workflows/ci.yml`) runs `cargo check`, the test suite, clippy and a
 release build matrix for Linux, Windows and macOS.
 
+## Running the server
+
+```toml
+# frps.toml
+bindAddr = "0.0.0.0"
+bindPort = 7000
+subDomainHost = "example.com"
+allowPorts = [{ start = 6000, end = 6010 }]
+enablePrometheus = true
+
+[auth]
+method = "token"
+token = "change-me"
+
+[webServer]
+addr = "0.0.0.0"
+port = 7500
+user = "admin"
+password = "change-me"
+```
+
+```bash
+./target/release/rust-frp frps --verify -c ./frps.toml   # validate only
+./target/release/rust-frp frps -c ./frps.toml            # run
+```
+
+TLS is negotiated on the control port automatically: a self-signed
+certificate is generated when `transport.tls.certFile`/`keyFile` are unset,
+and `transport.tls.force = true` rejects plaintext clients. The dashboard and
+admin API are served on `webServer` (`/`, `/api/serverinfo`, `/api/proxy`,
+`/api/clients`, `/healthz`, plus `/metrics` when `enablePrometheus` is set).
+
 ## Roadmap
 
 - [x] **M1 — protocol core**: message model, framing, token auth, AES-128-CFB
       encryption, Snappy framing, async stream adapters, offline self tests.
-- [ ] **M2 — frps**: TLS aware listener, control session, run-id management,
-      work-connection pool, port manager with `allowPorts`, TCP/UDP/HTTP/HTTPS/STCP
-      proxy managers, `vhost` router, admin API, Prometheus metrics, dashboard.
+- [ ] **M2 — frps**
+  - [x] TLS aware control listener (custom `0x17` first byte), token auth,
+        run-id replacement, heartbeat supervision, work-connection pool,
+        `NewProxy` / `CloseProxy`;
+  - [x] `tcp`, `udp`, `stcp`, `sudp` proxies, port manager with `allowPorts`;
+  - [x] visitor admission for `stcp` / `sudp`;
+  - [x] dashboard, JSON admin API, Prometheus endpoint;
+  - [ ] `http` / `https` virtual host routing on `vhostHTTPPort` /
+        `vhostHTTPSPort`;
+  - [ ] `tcpmux`, `xtcp` NAT hole punching, proxy groups, bandwidth limiting.
 - [ ] **M3 — frpc**: config loading (TOML/YAML/JSON + `includes`), connector
       (TCP/TLS/WebSocket), proxy managers, STCP/XTCP visitors, health checks,
-      bandwidth limits, proxy protocol, `reload` / `verify` / `status` / `stop`.
+      `reload` / `verify` / `status` / `stop`.
 - [ ] **M4 — plugins & store**: `unix_domain_socket`, `http_proxy`, `socks5`,
-      `static_file`, `https2http`, `http2https`, `https2https`; client admin UI and
-      persistent proxy store.
-- [ ] **M5 — extended transports**: tcpmux, SUDP, XTCP NAT hole punching, KCP, QUIC,
-      wire protocol v2 (AEAD handshake), OIDC auth, SSH tunnel gateway.
+      `static_file`, `https2http`, `http2https`, `https2https`; client admin UI
+      and persistent proxy store.
+- [ ] **M5 — extended transports**: KCP, QUIC, wire protocol v2 (AEAD
+      handshake), OIDC auth, SSH tunnel gateway.
 
 Interoperability is validated by running a Rust peer against an upstream frp binary
 of the same version.
