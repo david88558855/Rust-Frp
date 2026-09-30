@@ -261,7 +261,9 @@ mod tests {
     #[test]
     fn info_and_selftest_take_no_arguments() {
         assert!(matches!(
-            Cli::try_parse_from(["rust-frp", "info"]).expect("parse").command,
+            Cli::try_parse_from(["rust-frp", "info"])
+                .expect("parse")
+                .command,
             Command::Info
         ));
         assert!(matches!(
@@ -339,10 +341,7 @@ mod tests {
     fn crypto_roundtrip_survives_a_different_key() {
         // The key only has to agree between the two ends; length is what is
         // asserted, so a shorter token must still work.
-        assert_eq!(
-            stream_crypto_roundtrip(b"a").expect("round trip"),
-            32 * 400
-        );
+        assert_eq!(stream_crypto_roundtrip(b"a").expect("round trip"), 32 * 400);
     }
 
     #[test]
