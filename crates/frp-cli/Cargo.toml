@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 description = "rust-frp - unified frps/frpc command line entrypoint"
 
+[lib]
+name = "frp_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "rust-frp"
 path = "src/main.rs"

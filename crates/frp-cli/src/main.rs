@@ -1,49 +1,13 @@
 //! `rust-frp` - unified command line entrypoint hosting both `frps` and `frpc`.
+//!
+//! Everything decidable without touching the console or the network lives in
+//! the `frp_cli` library next to this file; what remains here is process
+//! lifecycle: parse, dispatch, install the signal handler, own the runtime.
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::Parser;
+use frp_cli::{describe_server, info_lines, selftest_checks, Cli, Command};
 use frp_core::config::server::ServerConfig;
-use frp_core::crypto::auth;
-use frp_core::msg::{Login, Message, ReqWorkConn};
-use frp_core::{codec, FRP_VERSION};
-
-#[derive(Parser, Debug)]
-#[command(
-    name = "rust-frp",
-    version,
-    about = "Rust reimplementation of frp (fast reverse proxy), wire compatible with frp v0.71",
-    long_about = None
-)]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
-}
-
-#[derive(Subcommand, Debug)]
-enum Command {
-    /// Run the frp server (frps).
-    Frps {
-        /// Path to the server configuration file (TOML/YAML/JSON).
-        #[arg(short = 'c', long = "config", default_value = "./frps.toml")]
-        config: String,
-        /// Validate the configuration and exit.
-        #[arg(long = "verify")]
-        verify: bool,
-    },
-    /// Run the frp client (frpc).
-    Frpc {
-        /// Path to the client configuration file (TOML/YAML/JSON).
-        #[arg(short = 'c', long = "config", default_value = "./frpc.toml")]
-        config: String,
-        /// Validate the configuration and exit.
-        #[arg(long = "verify")]
-        verify: bool,
-    },
-    /// Print build and wire compatibility information.
-    Info,
-    /// Run offline protocol self tests (framing, token auth, crypto stream).
-    Selftest,
-}
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -54,31 +18,21 @@ fn main() -> Result<()> {
         .init();
 
     match Cli::parse().command {
-        Command::Info => print_info(),
-        Command::Selftest => run_selftest()?,
+        Command::Info => {
+            for line in info_lines() {
+                println!("{line}");
+            }
+        }
+        Command::Selftest => {
+            for line in selftest_checks()? {
+                println!("{line}");
+            }
+            println!("rust-frp selftest: all checks passed");
+        }
         Command::Frps { config, verify } => run_frps(&config, verify)?,
         Command::Frpc { config, verify } => run_frpc(&config, verify)?,
     }
     Ok(())
-}
-
-fn print_info() {
-    println!("rust-frp {FRP_VERSION}");
-    println!(
-        "wire protocol  : v1 (type:u8 | len:i64 BE | json), max payload {} bytes",
-        codec::MAX_MSG_LENGTH
-    );
-    println!("auth           : md5(token || timestamp)");
-    println!("control crypto : aes-128-cfb, pbkdf2-hmac-sha1(token, \"frp\", 64, 16)");
-    println!("work crypto    : same cipher, enabled per proxy by transport.useEncryption");
-    println!("compression    : snappy framed stream (crc32c masked)");
-    println!("tls            : custom first byte 0x17, real ClientHello 0x16");
-    println!("tcpMux         : yamux session over the control socket (both peers default to on)");
-    println!("server proxies : tcp, udp, stcp, sudp, http, https");
-    println!("client proxies : tcp, udp, http, https, stcp, sudp, tcpmux");
-    println!("client visitors: stcp");
-    println!("client plugins : unix_domain_socket, static_file, socks5, http_proxy, http2http, http2https, https2http, https2https, tls2raw");
-    println!("message types  : login/login_resp/new_proxy/new_proxy_resp/close_proxy/new_work_conn/req_work_conn/start_work_conn/new_visitor_conn/new_visitor_conn_resp/ping/pong/udp_packet/nat_hole_*");
 }
 
 fn run_frps(config: &str, verify: bool) -> Result<()> {
@@ -86,14 +40,7 @@ fn run_frps(config: &str, verify: bool) -> Result<()> {
         frp_core::config::load_config(config).with_context(|| format!("load {config}"))?;
 
     if verify {
-        let mut checked = cfg.clone();
-        checked.complete();
-        println!(
-            "configuration is valid: bind {}:{} ({} allowPorts entries)",
-            checked.bind_addr,
-            checked.bind_port,
-            checked.allow_ports.len()
-        );
+        println!("{}", describe_server(&cfg));
         return Ok(());
     }
 
@@ -137,68 +84,5 @@ fn run_frpc(config: &str, verify: bool) -> Result<()> {
             }
         });
         service.run().await
-    })
-}
-
-fn run_selftest() -> Result<()> {
-    // 1. framing round trip against a hard coded expected frame
-    let msg = Message::Login(Login {
-        version: FRP_VERSION.to_string(),
-        privilege_key: auth::get_auth_key("token", 1),
-        timestamp: 1,
-        ..Default::default()
-    });
-    let frame = codec::pack(&msg)?;
-    assert_eq!(frame[0], b'o', "login type byte");
-    let decoded = codec::unpack(&frame)?;
-    assert_eq!(decoded, msg, "framing round trip");
-    println!("[ok] message framing ({} byte frame)", frame.len());
-
-    // 2. token auth
-    let key = auth::get_auth_key("s3cret", 1_700_000_000);
-    assert!(auth::verify_auth_key("s3cret", 1_700_000_000, &key));
-    assert!(!auth::verify_auth_key("other", 1_700_000_000, &key));
-    println!("[ok] token auth md5(token||timestamp)");
-
-    // 3. empty message shape
-    let empty = codec::pack(&Message::ReqWorkConn(ReqWorkConn {}))?;
-    assert_eq!(&empty[9..], b"{}");
-    println!("[ok] req_work_conn encodes as {{}}");
-
-    // 4. crypto round trip (AES-128-CFB + snappy framing)
-    let bytes = stream_crypto_roundtrip(b"token");
-    println!("[ok] encrypted+compressed stream round trip ({bytes} bytes)");
-
-    println!("rust-frp selftest: all checks passed");
-    Ok(())
-}
-
-/// Exercises the exact wrapping order used for work connections.
-fn stream_crypto_roundtrip(token: &[u8]) -> usize {
-    use frp_core::crypto::{CompressedStream, EncryptedStream};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("build tokio runtime");
-
-    runtime.block_on(async move {
-        let (a, b) = tokio::io::duplex(64 * 1024);
-        let mut client = CompressedStream::new(EncryptedStream::new(a, token));
-        let mut server = CompressedStream::new(EncryptedStream::new(b, token));
-
-        let payload = b"rust-frp work connection payload ".repeat(400);
-        let expected = payload.clone();
-        let writer = tokio::spawn(async move {
-            client.write_all(&payload).await.expect("write");
-            client.shutdown().await.expect("shutdown");
-        });
-
-        let mut got = Vec::new();
-        server.read_to_end(&mut got).await.expect("read");
-        writer.await.expect("join");
-        assert_eq!(got, expected, "crypto stream round trip");
-        got.len()
     })
 }
