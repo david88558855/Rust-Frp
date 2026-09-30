@@ -230,22 +230,33 @@ fn reframing_matches_the_declared_wire_layout() {
                 continue;
             }
         };
-        // The framing has no escaping of its own, so the header is compared
-        // strictly. The body goes through `compare`, which tolerates only the
-        // documented `\uXXXX` divergence: a body that is byte identical passes,
-        // and so does one that differs solely because Go escaped a non ASCII
-        // rune that we emit as UTF-8. Everything else is a real mismatch.
+        // The body is compared with `compare`, which tolerates only the
+        // documented `\uXXXX` divergence: identical bytes pass, and so does a
+        // body that differs solely because Go escaped a non ASCII rune we emit
+        // as UTF-8. Everything else is a real mismatch.
         let expected = frame(type_byte, body);
         match compare(&expected[HEADER_LEN..], &packed[HEADER_LEN..]) {
             Ok(_) => {}
             Err(detail) => failures.push(format!("{}: {detail}", v.name)),
         }
-        if packed[..HEADER_LEN] != expected[..HEADER_LEN] {
+
+        // The length field cannot be compared to upstream's directly, because
+        // it counts the very bytes that divergence changes. What it must do is
+        // describe the body we actually framed, so it is checked against
+        // `packed` rather than against `expected`.
+        let packed_body_len = i64::from_be_bytes(packed[1..HEADER_LEN].try_into().unwrap());
+        if packed_body_len != packed.len() as i64 - HEADER_LEN as i64 {
             failures.push(format!(
-                "{}: header differs\n     upstream: {}\n     ours    : {}",
+                "{}: length field says {} but the body is {} bytes",
                 v.name,
-                hex::encode(&expected[..HEADER_LEN]),
-                hex::encode(&packed[..HEADER_LEN])
+                packed_body_len,
+                packed.len() - HEADER_LEN
+            ));
+        }
+        if packed[0] != type_byte {
+            failures.push(format!(
+                "{}: type byte is {:#04x}, expected {:#04x}",
+                v.name, packed[0], type_byte
             ));
         }
     }

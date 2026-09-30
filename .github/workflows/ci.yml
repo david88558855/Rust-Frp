@@ -173,10 +173,15 @@ jobs:
         with:
           go-version: '1.23'
       # A cold `go mod download` of frp and its dependency tree is the slowest
-      # step in this job, so it is cached across runs.
+      # step in this job, so it is cached across runs. The key hashes the
+      # generator's go.mod, which pins frp and golib; there is deliberately no
+      # go.sum here, because `go mod tidy` writes one into a temp dir rather
+      # than the repo.
       - uses: actions/cache@v4
         with:
-          path: ~/go/pkg/mod
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
           key: ${{ runner.os }}-govec-${{ hashFiles('tests/interop/vectors/gen_go_vectors/go.mod') }}
           restore-keys: |
             ${{ runner.os }}-govec-
