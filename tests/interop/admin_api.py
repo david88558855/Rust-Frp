@@ -130,44 +130,51 @@ def common_cfg(admin_port: int, server_port: int, remote_port: int) -> str:
     return "\n".join(lines) + "\n"
 
 
+AUTH = ("admin", "secret")
+
+
 def run_script(admin_port: int) -> dict:
     fp: dict = {}
 
     s, _, b = request(admin_port, "GET", "/healthz")
     fp["healthz_status"] = s
 
-    s, _, b = request(admin_port, "GET", "/api/status")
+    s, _, b = request(admin_port, "GET", "/api/status", auth=AUTH)
     obj = json.loads(b)
     fp["status_keys"] = sorted(obj.keys())
     fp["status_types"] = sorted(obj.keys())
     fp["status"] = normalise_status(obj)
 
-    s, _, b = request(admin_port, "GET", "/api/reload")
+    s, _, b = request(admin_port, "GET", "/api/reload", auth=AUTH)
     if s == 200:
         fp["reload_keys"] = sorted(json.loads(b).keys())
     else:
         assert_envelope(b, s)
         fp["reload_code"] = s
 
-    s, _, b = request(admin_port, "GET", "/api/proxy/admin-tcp/config")
+    s, _, b = request(admin_port, "GET", "/api/proxy/admin-tcp/config", auth=AUTH)
     if s == 200:
         fp["proxy_config_keys"] = sorted(json.loads(b).keys())
     else:
         fp["proxy_config_code"] = s
 
-    s, _, b = request(admin_port, "GET", "/api/visitor/admin-stcp-v/config")
+    s, _, b = request(admin_port, "GET", "/api/visitor/admin-stcp-v/config", auth=AUTH)
     if s == 200:
         fp["visitor_config_keys"] = sorted(json.loads(b).keys())
     else:
         fp["visitor_config_code"] = s
 
-    s, _, b = request(admin_port, "GET", "/api/proxy/missing/config")
+    s, _, b = request(admin_port, "GET", "/api/proxy/missing/config", auth=AUTH)
     assert_envelope(b, s)
     fp["missing_proxy_code"] = s
     fp["missing_proxy_keys"] = sorted(json.loads(b).keys())
 
     s, _, b = request(
-        admin_port, "PUT", "/api/proxy/admin-tcp/config", body=b"this-is-not-toml"
+        admin_port,
+        "PUT",
+        "/api/proxy/admin-tcp/config",
+        body=b"this-is-not-toml",
+        auth=AUTH,
     )
     assert_envelope(b, s)
     fp["bad_body_keys"] = sorted(json.loads(b).keys())
@@ -176,27 +183,27 @@ def run_script(admin_port: int) -> dict:
         "name": "store-add-tcp",
         "type": "tcp",
         "localPort": 1,
-        "remotePort": 64000,
+        "remotePort": 16448,
     }).encode()
-    s, _, b = request(admin_port, "POST", "/api/store/proxies", body=body)
+    s, _, b = request(admin_port, "POST", "/api/store/proxies", body=body, auth=AUTH)
     fp["store_add_code"] = s
-    s, _, b = request(admin_port, "POST", "/api/store/proxies", body=body)
+    s, _, b = request(admin_port, "POST", "/api/store/proxies", body=body, auth=AUTH)
     if s >= 400:
         assert_envelope(b, s)
         fp["store_add_dup_code"] = s
 
     s, _, b = request(
-        admin_port, "GET", "/api/store/proxies/store-add-tcp"
+        admin_port, "GET", "/api/store/proxies/store-add-tcp", auth=AUTH
     )
     if s == 200:
         fp["store_get_keys"] = sorted(json.loads(b).keys())
 
     s, _, b = request(
-        admin_port, "DELETE", "/api/store/proxies/store-add-tcp"
+        admin_port, "DELETE", "/api/store/proxies/store-add-tcp", auth=AUTH
     )
     fp["store_del_code"] = s
 
-    s, _, b = request(admin_port, "GET", "/api/store/proxies")
+    s, _, b = request(admin_port, "GET", "/api/store/proxies", auth=AUTH)
     fp["store_list_code"] = s
 
     return fp
