@@ -148,6 +148,7 @@ impl Service {
             let cfg = self.state.current.read().unwrap().clone();
             match self.login_once(&run_id, &cfg).await {
                 Ok(handle) => {
+                    let handle = Arc::new(handle);
                     run_id = handle.run_id.clone();
                     backoff = INITIAL_BACKOFF;
                     first = false;

@@ -161,8 +161,8 @@ fn authorized(headers: &HeaderMap, user: &str, password: &str) -> bool {
     let Some((offered_user, offered_password)) = decoded.split_once(':') else {
         return false;
     };
-    frp_core::crypto::auth::constant_time_eq(user.as_bytes(), offered_user.as_bytes())
-        && frp_core::crypto::auth::constant_time_eq(password.as_bytes(), offered_password.as_bytes())
+    frp_core::crypto::auth::constant_time_eq(user, offered_user)
+        && frp_core::crypto::auth::constant_time_eq(password, offered_password)
 }
 
 /// Binds and serves the admin HTTP server until `state.cancel` is cancelled.
@@ -334,7 +334,11 @@ fn status(state: &AdminState) -> Response<RespBody> {
     for entries in by_type.values_mut() {
         entries.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
     }
-    ok_json(&Value::Object(by_type.into_iter().collect()))
+    let map: serde_json::Map<String, Value> = by_type
+        .into_iter()
+        .map(|(kind, entries)| (kind, Value::Array(entries)))
+        .collect();
+    ok_json(&Value::Object(map))
 }
 
 // --- config file ----------------------------------------------------------
