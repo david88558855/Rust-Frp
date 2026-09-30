@@ -45,6 +45,8 @@ jobs:
         run: timeout -k 10 300 cargo test -p frp-client -- --nocapture --test-threads=1
       - name: cargo test (frp-server)
         run: timeout -k 10 300 cargo test -p frp-server -- --nocapture --test-threads=1
+      - name: cargo test (frp-cli)
+        run: timeout -k 10 300 cargo test -p frp-cli -- --nocapture --test-threads=1
 
   clippy:
     name: clippy
