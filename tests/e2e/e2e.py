@@ -474,6 +474,9 @@ def main():
     binary = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
         os.path.dirname(os.path.dirname(HERE)), "target", "release", "rust-frp"
     )
+    # The child processes run with cwd set to the temporary directory, so a
+    # relative binary path would resolve against the wrong place.
+    binary = os.path.abspath(binary)
     if not os.path.exists(binary):
         print("missing binary at " + binary)
         return 1
