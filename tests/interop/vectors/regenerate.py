@@ -14,7 +14,10 @@ Usage:
     python3 tests/interop/vectors/regenerate.py [--check]
 
 ``--check`` regenerates into memory and diffs against the committed file
-without writing, which is what CI runs.
+without writing, which is what CI runs. The diff is byte based, with one
+exception: a body is also accepted when it parses to the same JSON value, which
+absorbs the `\\uXXXX` escaping `json.load` performs on the way in. See
+``bodies_agree``.
 """
 
 from __future__ import annotations
@@ -33,6 +36,26 @@ VECTORS = os.path.join(THIS_DIR, "msg_vectors.json")
 
 FRP_VERSION = "0.71.0"
 GOLIB_VERSION = "0.8.2"
+
+
+def bodies_agree(corpus_body, frp_body):
+    """Whether two encoded bodies are the same message.
+
+    Byte equality first, and when that fails a comparison of the parsed values.
+    The fallback exists for exactly one reason: this script reads the corpus
+    with `json.load`, which decodes `\\uXXXX` escapes into the runes they name,
+    where frp prints them escaped. Those two strings always differ, and would
+    make the fixture look stale on every run for a reason that is not staleness.
+
+    It stays narrow: both sides must be valid JSON, so a renamed field, a
+    dropped field or a changed type still fails.
+    """
+    if corpus_body == frp_body:
+        return True
+    try:
+        return json.loads(corpus_body) == json.loads(frp_body)
+    except json.JSONDecodeError:
+        return False
 
 
 def run_go(go):
@@ -109,7 +132,7 @@ def main():
                 "%s: type byte %r in the corpus, %r from frp"
                 % (name, entry["type_byte"], got["type_byte"])
             )
-        if entry["body"] != got["body"]:
+        if not bodies_agree(entry["body"], got["body"]):
             problems.append(
                 "%s: body differs\n     corpus: %s\n     frp   : %s"
                 % (name, entry["body"], got["body"])
