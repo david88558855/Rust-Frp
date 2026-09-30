@@ -77,7 +77,7 @@ pub fn create(cfg: &PluginConfig) -> Result<Arc<dyn Plugin>> {
 
     Ok(match cfg {
         PluginConfig::UnixDomainSocket { unix_path } => {
-            Arc::new(unix_domain_socket::UnixDomainSocketPlugin::new(unix_path)) as Arc<dyn Plugin>
+            unix_domain_socket::UnixDomainSocketPlugin::new(unix_path)? as Arc<dyn Plugin>
         }
         PluginConfig::StaticFile {
             local_path,
@@ -281,7 +281,7 @@ mod tests {
 
     #[tokio::test]
     async fn every_implemented_plugin_can_be_created() {
-        let cases: Vec<PluginConfig> = vec![
+        let mut cases: Vec<PluginConfig> = vec![
             serde_json::from_str(r#"{"type":"unix_domain_socket","unixPath":"/tmp/x.sock"}"#)
                 .unwrap(),
             serde_json::from_str(r#"{"type":"socks5"}"#).unwrap(),
@@ -289,9 +289,31 @@ mod tests {
             serde_json::from_str(r#"{"type":"http2http","localAddr":"127.0.0.1:8080"}"#).unwrap(),
             serde_json::from_str(r#"{"type":"http2https","localAddr":"127.0.0.1:8443"}"#).unwrap(),
         ];
+        if !cfg!(unix) {
+            // `unix_domain_socket` is refused without `AF_UNIX`, which is the
+            // behaviour the platform test below pins down.
+            cases.retain(|cfg| cfg.plugin_type() != "unix_domain_socket");
+        }
         for cfg in cases {
             let plugin = create(&cfg).unwrap_or_else(|e| panic!("{}: {e}", cfg.plugin_type()));
             assert_eq!(plugin.name(), cfg.plugin_type());
+        }
+    }
+
+    #[test]
+    fn the_unix_socket_plugin_follows_the_platform() {
+        let cfg: PluginConfig =
+            serde_json::from_str(r#"{"type":"unix_domain_socket","unixPath":"/tmp/x.sock"}"#)
+                .unwrap();
+        assert!(cfg.is_implemented());
+        if cfg!(unix) {
+            assert!(create(&cfg).is_ok());
+        } else {
+            let err = match create(&cfg) {
+                Ok(_) => panic!("AF_UNIX is not available on this platform"),
+                Err(e) => e.to_string(),
+            };
+            assert!(err.contains("AF_UNIX"), "{err}");
         }
     }
 
