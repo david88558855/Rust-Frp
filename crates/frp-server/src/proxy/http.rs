@@ -155,7 +155,7 @@ pub fn start_http(
         control: Arc::downgrade(ctl),
     });
 
-    let mut registered = Vec::new();
+    let mut registered: Vec<RouteEntry> = Vec::new();
     for domain in &domains {
         for location in &locations {
             let ok = ctx.vhost_http.add(
@@ -224,7 +224,7 @@ pub fn start_https(
         control: Arc::downgrade(ctl),
     });
 
-    let mut registered = Vec::new();
+    let mut registered: Vec<String> = Vec::new();
     for domain in &domains {
         if !ctx.vhost_https.add(domain, "", "", proxy.clone()) {
             for done in &registered {
@@ -594,7 +594,9 @@ mod tests {
             proxy_type: "http".into(),
             ..Default::default()
         };
-        let err = start_http(ctx.clone(), &ctl, spec).unwrap_err();
+        let err = start_http(ctx.clone(), &ctl, spec)
+            .err()
+            .expect("registering an http proxy without domains must fail");
         assert!(err.to_string().contains("customDomain"));
 
         // With vhostHTTPPort unset the proxy must be refused outright.
@@ -608,7 +610,9 @@ mod tests {
             custom_domains: vec!["a.example.com".into()],
             ..Default::default()
         };
-        let err = start_http(ctx, &ctl, spec).unwrap_err();
+        let err = start_http(ctx, &ctl, spec)
+            .err()
+            .expect("registering an http proxy without vhostHTTPPort must fail");
         assert!(err.to_string().contains("vhostHTTPPort"));
     }
 
@@ -685,7 +689,9 @@ mod tests {
             ..Default::default()
         };
         let _first = start_http(ctx.clone(), &ctl, spec.clone()).unwrap();
-        let err = start_http(ctx.clone(), &ctl, spec).unwrap_err();
+        let err = start_http(ctx.clone(), &ctl, spec)
+            .err()
+            .expect("a duplicate route must be rejected");
         assert!(err.to_string().contains("conflict"));
         assert_eq!(ctx.vhost_http.len(), 1, "the failed attempt must roll back");
     }

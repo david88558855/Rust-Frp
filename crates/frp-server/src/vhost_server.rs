@@ -22,6 +22,7 @@ use crate::http_util::{
     auth_required_response, canonical_host, check_route_auth, not_found_response, route_http_user,
     RespBody,
 };
+use crate::proxy::ServerProxy;
 
 /// Serves the plain HTTP virtual host port until the process exits.
 pub async fn serve_http(ctx: Arc<ServerContext>) -> Result<()> {
