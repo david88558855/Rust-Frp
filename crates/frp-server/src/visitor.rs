@@ -10,6 +10,7 @@ use std::net::SocketAddr;
 use std::sync::Mutex;
 
 use anyhow::{anyhow, Result};
+use frp_core::crypto::auth;
 use frp_core::crypto::auth::constant_time_eq;
 use frp_core::transport::ServerConn;
 use tokio::sync::mpsc;
@@ -27,7 +28,6 @@ pub struct VisitorConn {
 struct Listener {
     secret_key: String,
     allow_users: Vec<String>,
-    owner_user: String,
     sender: mpsc::UnboundedSender<VisitorConn>,
 }
 
@@ -60,13 +60,13 @@ impl VisitorRegistry {
             proxy_name.to_string(),
             Listener {
                 secret_key: secret_key.to_string(),
-                // An empty allowUsers list means "only the proxy owner".
+                // An empty allowUsers list means "only the proxy owner",
+                // upstream `startVisitorListener`.
                 allow_users: if allow_users.is_empty() {
                     vec![owner_user.to_string()]
                 } else {
                     allow_users.to_vec()
                 },
-                owner_user: owner_user.to_string(),
                 sender: tx,
             },
         );
@@ -83,51 +83,48 @@ impl VisitorRegistry {
 
     /// Validates a `NewVisitorConn` request without consuming the connection.
     ///
-    /// The success response must be written *before* the connection is handed
-    /// to the proxy, so validation and admission are separate steps.
-    pub fn validate(&self, proxy_name: &str, sign_key: &str, user: &str) -> Result<()> {
+    /// The response must be written *before* the connection is handed to the
+    /// proxy, so validation and queueing are separate steps.
+    ///
+    /// The visitor proves knowledge of the proxy's secret key by sending
+    /// `md5(secretKey || timestamp)`, the same construction the token uses.
+    /// Comparing the signature to the secret key itself would never match — and
+    /// is what this did until the STCP end to end run caught it.
+    pub fn validate(
+        &self,
+        proxy_name: &str,
+        sign_key: &str,
+        timestamp: i64,
+        user: &str,
+    ) -> Result<()> {
         let listeners = self.listeners.lock().unwrap();
         let listener = listeners
             .get(proxy_name)
             .ok_or_else(|| anyhow!("no visitor listener for proxy [{proxy_name}]"))?;
 
-        if !constant_time_eq(&listener.secret_key, sign_key) {
-            return Err(anyhow!("visitor sign key mismatch for proxy [{proxy_name}]"));
-        }
-        if user.is_empty() {
-            return Ok(());
-        }
-        if !listener.allow_users.iter().any(|u| u == user) {
+        let expected = auth::get_auth_key(&listener.secret_key, timestamp);
+        if !constant_time_eq(&expected, sign_key) {
             return Err(anyhow!(
-                "user [{user}] is not allowed to visit proxy [{proxy_name}]"
+                "visitor connection of [{proxy_name}] auth failed"
+            ));
+        }
+        // `*` allows any user, matching upstream.
+        if !listener.allow_users.iter().any(|u| u == user)
+            && !listener.allow_users.iter().any(|u| u == "*")
+        {
+            return Err(anyhow!(
+                "visitor connection of [{proxy_name}] user [{user}] not allowed"
             ));
         }
         Ok(())
     }
 
-    /// Validates a `NewVisitorConn` request and queues the connection.
-    pub fn admit(&self, proxy_name: &str, conn: VisitorConn, sign_key: &str) -> Result<()> {
+    /// Queues an already validated connection for the proxy to pick up.
+    pub fn enqueue(&self, proxy_name: &str, conn: VisitorConn) -> Result<()> {
         let listeners = self.listeners.lock().unwrap();
         let listener = listeners
             .get(proxy_name)
             .ok_or_else(|| anyhow!("no visitor listener for proxy [{proxy_name}]"))?;
-
-        if !constant_time_eq(&listener.secret_key, sign_key) {
-            return Err(anyhow!("visitor sign key mismatch for proxy [{proxy_name}]"));
-        }
-        let user = if conn.user.is_empty() {
-            listener.owner_user.clone()
-        } else {
-            conn.user.clone()
-        };
-        if !listener.allow_users.iter().any(|u| u == &user) {
-            return Err(anyhow!(
-                "user [{user}] is not allowed to visit proxy [{proxy_name}]"
-            ));
-        }
-
-        let mut conn = conn;
-        conn.user = user;
         listener
             .sender
             .send(conn)
@@ -172,7 +169,10 @@ mod tests {
         let reg = VisitorRegistry::new();
         let mut rx = reg.register("p1", "sk", vec![], "owner").unwrap();
         assert!(reg.exists("p1"));
-        assert!(reg.admit("p1", dummy_conn("owner").await, "sk").is_ok());
+        let timestamp = 1_700_000_000;
+        let sign_key = auth::get_auth_key("sk", timestamp);
+        reg.validate("p1", &sign_key, timestamp, "owner").unwrap();
+        reg.enqueue("p1", dummy_conn("owner").await).unwrap();
         assert!(rx.try_recv().is_ok());
     }
 
@@ -186,21 +186,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn wrong_secret_key_is_rejected() {
+    async fn a_wrong_secret_key_is_rejected() {
         let reg = VisitorRegistry::new();
         let _rx = reg.register("p1", "sk", vec![], "owner").unwrap();
+        let timestamp = 1_700_000_000;
+        // Signed with a different secret, so the key itself would match if the
+        // server compared it directly.
+        let forged = auth::get_auth_key("other", timestamp);
         let err = reg
-            .admit("p1", dummy_conn("owner").await, "nope")
+            .validate("p1", &forged, timestamp, "owner")
             .unwrap_err();
-        assert!(err.to_string().contains("sign key mismatch"));
+        assert!(err.to_string().contains("auth failed"));
+    }
+
+    #[tokio::test]
+    async fn the_secret_key_itself_is_not_accepted_as_the_signature() {
+        let reg = VisitorRegistry::new();
+        let _rx = reg.register("p1", "sk", vec![], "owner").unwrap();
+        let err = reg.validate("p1", "sk", 1_700_000_000, "owner").unwrap_err();
+        assert!(err.to_string().contains("auth failed"));
     }
 
     #[tokio::test]
     async fn allow_users_defaults_to_the_owner() {
         let reg = VisitorRegistry::new();
         let _rx = reg.register("p1", "sk", vec![], "owner").unwrap();
+        let timestamp = 1_700_000_000;
+        let sign_key = auth::get_auth_key("sk", timestamp);
+        assert!(reg.validate("p1", &sign_key, timestamp, "owner").is_ok());
         let err = reg
-            .admit("p1", dummy_conn("intruder").await, "sk")
+            .validate("p1", &sign_key, timestamp, "intruder")
             .unwrap_err();
         assert!(err.to_string().contains("not allowed"));
     }
@@ -211,25 +226,30 @@ mod tests {
         let _rx = reg
             .register("p1", "sk", vec!["alice".into()], "owner")
             .unwrap();
-        assert!(reg.admit("p1", dummy_conn("alice").await, "sk").is_ok());
-        assert!(reg.admit("p1", dummy_conn("owner").await, "sk").is_err());
+        let timestamp = 1_700_000_000;
+        let sign_key = auth::get_auth_key("sk", timestamp);
+        assert!(reg.validate("p1", &sign_key, timestamp, "alice").is_ok());
+        assert!(reg
+            .validate("p1", &sign_key, timestamp, "owner")
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn a_wildcard_allows_any_user() {
+        let reg = VisitorRegistry::new();
+        let _rx = reg.register("p1", "sk", vec!["*".into()], "owner").unwrap();
+        let timestamp = 1_700_000_000;
+        let sign_key = auth::get_auth_key("sk", timestamp);
+        assert!(reg.validate("p1", &sign_key, timestamp, "anyone").is_ok());
+        assert!(reg.validate("p1", &sign_key, timestamp, "").is_ok());
     }
 
     #[tokio::test]
     async fn unknown_proxy_is_rejected() {
         let reg = VisitorRegistry::new();
         let err = reg
-            .admit("missing", dummy_conn("u").await, "sk")
+            .validate("missing", "sig", 1, "u")
             .unwrap_err();
         assert!(err.to_string().contains("no visitor listener"));
-    }
-
-    #[test]
-    fn validate_does_not_consume_the_connection() {
-        let reg = VisitorRegistry::new();
-        let _rx = reg.register("p1", "sk", vec![], "owner").unwrap();
-        assert!(reg.validate("p1", "sk", "owner").is_ok());
-        assert!(reg.validate("p1", "bad", "owner").is_err());
-        assert!(reg.validate("p1", "sk", "intruder").is_err());
     }
 }

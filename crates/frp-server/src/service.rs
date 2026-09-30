@@ -405,7 +405,8 @@ async fn handle_new_visitor_conn(
     msg: frp_core::msg::NewVisitorConn,
     remote_addr: std::net::SocketAddr,
 ) -> Result<()> {
-    // An older visitor may omit run_id; in that case the user is unknown.
+    // A visitor from a client older than v0.50.0 carries no run id, and
+    // upstream then has no user to check the allowUsers list against.
     let user = if msg.run_id.is_empty() {
         String::new()
     } else {
@@ -415,14 +416,20 @@ async fn handle_new_visitor_conn(
             .unwrap_or_default()
     };
 
-    if let Err(e) = ctx
-        .visitors
-        .validate(&msg.proxy_name, &msg.sign_key, &user)
-    {
+    if let Err(e) = ctx.visitors.validate(
+        &msg.proxy_name,
+        &msg.sign_key,
+        msg.timestamp,
+        &user,
+    ) {
         warn!(proxy = %msg.proxy_name, error = %e, "visitor connection rejected");
         let resp = Message::NewVisitorConnResp(NewVisitorConnResp {
             proxy_name: msg.proxy_name.clone(),
-            error: response_error("register visitor conn error", &e.to_string(), ctx.cfg.detailed_errors()),
+            error: response_error(
+                "register visitor conn error",
+                &e.to_string(),
+                ctx.cfg.detailed_errors(),
+            ),
         });
         let _ = write_msg(&mut stream, &resp).await;
         return Ok(());
@@ -441,7 +448,7 @@ async fn handle_new_visitor_conn(
         use_encryption: msg.use_encryption,
         use_compression: msg.use_compression,
     };
-    if let Err(e) = ctx.visitors.admit(&msg.proxy_name, visitor, &msg.sign_key) {
+    if let Err(e) = ctx.visitors.enqueue(&msg.proxy_name, visitor) {
         warn!(proxy = %msg.proxy_name, error = %e, "visitor connection dropped");
     }
     Ok(())
