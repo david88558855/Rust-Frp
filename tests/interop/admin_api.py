@@ -54,11 +54,17 @@ def request(
     if auth is not None:
         token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode()).decode()
         req.add_header("Authorization", f"Basic {token}")
+    # The header mapping is returned as-is rather than as a plain dict: HTTP
+    # header names are case insensitive, and `email.message.Message` already
+    # implements that. Coercing to dict() preserves whatever capitalisation the
+    # peer happened to emit -- Go canonicalises to `Www-Authenticate`, hyper
+    # keeps its own spelling -- so a lower case lookup silently misses and the
+    # caller reads "". That produced a phantom diff in the auth comparison.
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            return resp.status, dict(resp.headers), resp.read()
+            return resp.status, resp.headers, resp.read()
     except urllib.error.HTTPError as e:
-        return e.code, dict(e.headers), e.read()
+        return e.code, e.headers, e.read()
 
 
 def wait_for_admin(port: int, timeout: float = 20.0) -> bool:

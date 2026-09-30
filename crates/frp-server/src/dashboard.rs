@@ -96,9 +96,11 @@ async fn handle<B>(
 async fn route<B>(req: Request<B>, ctx: Arc<ServerContext>) -> Result<Response<Full<Bytes>>> {
     if !authorized(&req, &ctx) {
         let mut resp = text_response(StatusCode::UNAUTHORIZED, "401 Unauthorized\n");
+        // Upstream sets the realm to "Restricted" in HTTPAuthMiddleware
+        // (pkg/util/net/http.go), not to the product name.
         resp.headers_mut().insert(
             hyper::header::WWW_AUTHENTICATE,
-            hyper::header::HeaderValue::from_static("Basic realm=\"frp\""),
+            hyper::header::HeaderValue::from_static("Basic realm=\"Restricted\""),
         );
         return Ok(resp);
     }
