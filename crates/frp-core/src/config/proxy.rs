@@ -100,8 +100,10 @@ impl HealthCheckConfig {
 #[serde(rename_all = "camelCase", default)]
 pub struct ProxyBaseConfig {
     pub name: String,
-    /// Discriminator, also mirrored as the enum tag.
-    #[serde(rename = "type")]
+    /// Discriminator. The `#[serde(tag = "type")]` on [`ProxyConfig`] already
+    /// carries this key, so the field is not serialized separately; keeping it
+    /// would emit a second `type` entry on every write.
+    #[serde(skip)]
     pub proxy_type: String,
     pub enabled: Option<bool>,
     pub annotations: std::collections::HashMap<String, String>,

@@ -205,7 +205,9 @@ pub struct VisitorTransport {
 #[serde(rename_all = "camelCase", default)]
 pub struct VisitorBaseConfig {
     pub name: String,
-    #[serde(rename = "type")]
+    /// Discriminator. The `#[serde(tag = "type")]` on [`VisitorConfig`] carries
+    /// this key, so the field is not serialized separately.
+    #[serde(skip)]
     pub visitor_type: String,
     pub enabled: Option<bool>,
     pub transport: VisitorTransport,
@@ -303,6 +305,41 @@ impl VisitorConfig {
             VisitorConfig::Xtcp(_) => "xtcp",
         }
     }
+
+    /// Upstream's `validation.ValidateVisitorConfigurer`, applied after the
+    /// base has been completed (which defaults `serverName` to `name`).
+    pub fn validate(&self) -> Result<(), String> {
+        let base = self.base();
+        if base.name.is_empty() {
+            return Err("name is required".into());
+        }
+        if base.server_name.is_empty() {
+            return Err("server name is required".into());
+        }
+        if base.bind_port == 0 {
+            return Err("bind port is required".into());
+        }
+        if let VisitorConfig::Xtcp(c) = self {
+            if c.protocol != "kcp" && c.protocol != "quic" {
+                return Err("protocol should be kcp or quic".into());
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The built-in store source, matching upstream `v1.StoreConfig`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct StoreConfig {
+    pub path: String,
+}
+
+impl StoreConfig {
+    /// Whether a store file is configured, matching upstream `IsEnabled`.
+    pub fn is_enabled(&self) -> bool {
+        !self.path.is_empty()
+    }
 }
 
 /// The shape of a client configuration file.
@@ -313,6 +350,7 @@ pub struct ClientConfigFile {
     pub common: ClientCommonConfig,
     pub proxies: Vec<ProxyConfig>,
     pub visitors: Vec<VisitorConfig>,
+    pub store: StoreConfig,
 }
 
 /// A fully loaded and completed client configuration.
@@ -323,6 +361,8 @@ pub struct ClientConfig {
     pub visitors: Vec<VisitorConfig>,
     /// Paths pulled in through `includes`, in load order.
     pub included_files: Vec<std::path::PathBuf>,
+    /// The built-in store, enabled when `path` is set.
+    pub store: StoreConfig,
 }
 
 impl ClientConfig {
@@ -336,7 +376,6 @@ impl ClientConfig {
         let mut proxies = main.proxies;
         let mut visitors = main.visitors;
         let mut included_files = Vec::new();
-
         if !main.common.includes.is_empty() {
             let files = expand_includes(base_dir, &main.common.includes)?;
             for file in files {
@@ -356,6 +395,7 @@ impl ClientConfig {
         }
 
         Self::from_parts(main.common, proxies, visitors, included_files)
+            .map(|cfg| cfg.with_store(main.store))
     }
 
     /// Builds a completed configuration from already parsed parts.
@@ -429,7 +469,14 @@ impl ClientConfig {
             proxies,
             visitors,
             included_files,
+            store: StoreConfig::default(),
         })
+    }
+
+    /// Attaches the store configuration loaded alongside the file.
+    pub fn with_store(mut self, store: StoreConfig) -> Self {
+        self.store = store;
+        self
     }
 
     /// Resolves the auth token, which may live in an external source.

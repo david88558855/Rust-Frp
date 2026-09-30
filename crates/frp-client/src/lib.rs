@@ -20,27 +20,33 @@
 //! * proxy plugins, which replace the local service: `unix_domain_socket`,
 //!   `static_file`, `socks5`, `http_proxy`, `http2http`, `http2https`,
 //!   `https2http`, `https2https` and `tls2raw` (see [`plugin`]);
+//! * the built-in persistent store (`[store] path`) behind the admin API
+//!   (see [`store`]);
+//! * the admin HTTP server (`[webServer]`) with the status, config, reload and
+//!   store endpoints (see [`admin`]);
 //! * the reconnect loop with exponential backoff (see [`service`]).
 //!
 //! Not implemented yet (tracked in the repository roadmap): the `xtcp` and
-//! `sudp` visitors, the `virtual_net` plugin, the client store and admin UI,
-//! client side bandwidth limiting, the proxy protocol header, and the
-//! `websocket` / `wss`, `kcp` and `quic` transports.
+//! `sudp` visitors, the `virtual_net` plugin, client side bandwidth limiting,
+//! the proxy protocol header, and the `websocket` / `wss`, `kcp` and `quic`
+//! transports.
 
 #![forbid(unsafe_code)]
 
+pub mod admin;
 pub mod connector;
 pub mod control;
 pub mod health;
 pub mod plugin;
 pub mod proxy;
 pub mod service;
+pub mod store;
 pub mod visitor;
 
 pub use connector::Connector;
 pub use control::{ControlHandle, SessionHandshake};
 pub use plugin::{create as create_plugin, Plugin};
-pub use proxy::{Phase, ProxyManager};
+pub use proxy::{Phase, ProxyManager, ProxyStatus};
 pub use service::Service;
 
 /// Default server port, matching upstream frp.

@@ -47,6 +47,20 @@ const UDP_WORK_CONN_HEARTBEAT: Duration = Duration::from_secs(30);
 /// A UDP peer that goes quiet for this long loses its socket.
 const UDP_PEER_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// A snapshot of one proxy's observable state, the shape the admin API's
+/// `/api/status` needs.
+#[derive(Debug, Clone)]
+pub struct ProxyStatus {
+    pub name: String,
+    pub proxy_type: String,
+    pub phase: String,
+    pub err: String,
+    pub remote_addr: String,
+    pub local_ip: String,
+    pub local_port: i32,
+    pub plugin: String,
+}
+
 /// Lifecycle phase of a proxy, with the exact strings upstream reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
@@ -461,6 +475,25 @@ impl ProxyWrapper {
         &self.cfg
     }
 
+    /// The full snapshot the admin API reports for this proxy.
+    pub fn status(&self) -> ProxyStatus {
+        let state = self.state.lock().unwrap();
+        ProxyStatus {
+            name: self.name.clone(),
+            proxy_type: self.proxy_type.clone(),
+            phase: state.phase.as_str().to_string(),
+            err: state.err.clone(),
+            remote_addr: self.remote_addr.lock().unwrap().clone(),
+            local_ip: self.cfg.base().local_ip.clone(),
+            local_port: self.cfg.base().local_port,
+            plugin: self
+                .cfg
+                .plugin()
+                .map(|p| p.plugin_type().to_string())
+                .unwrap_or_default(),
+        }
+    }
+
     /// Starts the status worker and, when configured, the health monitor.
     fn start(self: &Arc<Self>) {
         let worker = self.clone();
@@ -738,20 +771,9 @@ impl ProxyManager {
     }
 
     /// Snapshot of every proxy, for the admin API and for logging.
-    pub fn statuses(&self) -> Vec<(String, String, &'static str, String, String)> {
+    pub fn statuses(&self) -> Vec<ProxyStatus> {
         let proxies = self.proxies.lock().unwrap();
-        proxies
-            .values()
-            .map(|wrapper| {
-                (
-                    wrapper.name.clone(),
-                    wrapper.proxy_type.clone(),
-                    wrapper.phase().as_str(),
-                    wrapper.remote_addr(),
-                    wrapper.error(),
-                )
-            })
-            .collect()
+        proxies.values().map(|wrapper| wrapper.status()).collect()
     }
 
     pub fn stop(&self) {
@@ -815,7 +837,7 @@ mod tests {
         let mut names: Vec<String> = manager
             .statuses()
             .into_iter()
-            .map(|(name, kind, _, _, _)| format!("{name}:{kind}"))
+            .map(|s| format!("{}:{}", s.name, s.proxy_type))
             .collect();
         names.sort();
         assert_eq!(
@@ -858,8 +880,8 @@ mod tests {
         manager.set_running_status("ssh", "0.0.0.0:6000".into(), String::new());
         let statuses = manager.statuses();
         assert_eq!(statuses.len(), 1);
-        assert_eq!(statuses[0].2, "running");
-        assert_eq!(statuses[0].3, "0.0.0.0:6000");
+        assert_eq!(statuses[0].phase, "running");
+        assert_eq!(statuses[0].remote_addr, "0.0.0.0:6000");
         manager.stop();
     }
 
@@ -899,8 +921,8 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
         manager.set_running_status("ssh", String::new(), "port already used".into());
         let statuses = manager.statuses();
-        assert_eq!(statuses[0].2, "start error");
-        assert_eq!(statuses[0].4, "port already used");
+        assert_eq!(statuses[0].phase, "start error");
+        assert_eq!(statuses[0].err, "port already used");
         manager.stop();
     }
 
@@ -912,7 +934,7 @@ mod tests {
         );
         let statuses = manager.statuses();
         // No registration may be attempted before the first probe succeeds.
-        assert_eq!(statuses[0].2, "new");
+        assert_eq!(statuses[0].phase, "new");
         manager.stop();
     }
 

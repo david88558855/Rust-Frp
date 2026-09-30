@@ -117,7 +117,7 @@ fn run_frps(config: &str, verify: bool) -> Result<()> {
 fn run_frpc(config: &str, verify: bool) -> Result<()> {
     let cfg = frp_core::config::ClientConfig::load(config)
         .with_context(|| format!("load {config}"))?;
-    let service = frp_client::Service::new(cfg)?;
+    let service = frp_client::Service::new(cfg, Some(std::path::PathBuf::from(config)))?;
 
     if verify {
         println!("configuration is valid:\n{}", service.describe());

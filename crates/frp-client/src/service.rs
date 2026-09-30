@@ -5,9 +5,17 @@
 //! fatal (`loginFailExit`), every later one retries with an exponential
 //! backoff capped at twenty seconds, and each successful login replaces the
 //! previous session wholesale — proxies and visitors are rebuilt from the
-//! configuration, which is why a reconnect picks up the current config.
+//! current configuration, which is why a reconnect picks up the current config.
+//!
+//! The configuration is not fixed: the admin API and the store mutate the
+//! shared [`AdminState`], and a change asks the live session to stop so the
+//! loop rebuilds it. This is the reconnect-based equivalent of upstream's
+//! hot-swap `UpdateAllConfigurer` — the observable outcome is the same, but
+//! here a store mutation takes effect by re-logging in rather than by editing
+//! the running session in place.
 
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -15,8 +23,10 @@ use frp_core::config::ClientConfig;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
+use crate::admin::AdminState;
 use crate::connector::Connector;
 use crate::control::{dial_and_login, start_session, ControlHandle};
+use crate::store::Store;
 
 /// Upper bound for the reconnect delay.
 const MAX_RECONNECT_INTERVAL: Duration = Duration::from_secs(20);
@@ -27,29 +37,91 @@ const INITIAL_BACKOFF: Duration = Duration::from_secs(1);
 
 /// A loaded client, ready to run.
 pub struct Service {
-    cfg: Arc<ClientConfig>,
+    state: Arc<AdminState>,
     token: String,
     cancel: CancellationToken,
 }
 
 impl Service {
-    /// Resolves the token and prepares the service.
+    /// Resolves the token, opens the store and prepares the shared state.
     ///
-    /// Configuration errors — including an unreadable `tokenSource` — surface
-    /// here rather than on the first reconnect attempt.
-    pub fn new(cfg: ClientConfig) -> Result<Self> {
+    /// Configuration errors — including an unreadable `tokenSource` or a
+    /// malformed store file — surface here rather than on the first reconnect
+    /// attempt.
+    pub fn new(cfg: ClientConfig, config_file: Option<PathBuf>) -> Result<Self> {
         let token = cfg
             .token()
             .context("resolve auth.token for the client")?;
+
+        let store = if cfg.store.is_enabled() {
+            Some(Arc::new(Store::open(&cfg.store.path).with_context(|| {
+                format!("open the store at {}", cfg.store.path)
+            })?))
+        } else {
+            None
+        };
+
+        let user = cfg.common.web_server.user.clone();
+        let password = cfg.common.web_server.password.clone();
+        let cancel = CancellationToken::new();
+        let state = Arc::new(AdminState {
+            user,
+            password,
+            config_file,
+            base: RwLock::new(cfg.clone()),
+            current: RwLock::new(cfg),
+            live: Mutex::new(None),
+            store,
+            cancel: cancel.clone(),
+        });
+
+        // The effective config includes the store from the very first login.
+        crate::admin::recompute(&state).map_err(anyhow::Error::msg)?;
+
         Ok(Self {
-            cfg: Arc::new(cfg),
+            state,
             token,
-            cancel: CancellationToken::new(),
+            cancel,
         })
     }
 
-    pub fn config(&self) -> &ClientConfig {
-        &self.cfg
+    /// The effective configuration, for the CLI's `--verify` summary.
+    pub fn describe(&self) -> String {
+        let cfg = self.state.current.read().unwrap().clone();
+        let mut lines = vec![format!(
+            "server {}:{} (protocol {}, tcpMux {}, tls {})",
+            cfg.common.server_addr,
+            cfg.common.server_port,
+            cfg.common.transport.protocol,
+            cfg.common.transport.tcp_mux_enabled(),
+            cfg.common.transport.tls.enabled_for("tcp"),
+        )];
+        if cfg.store.is_enabled() {
+            lines.push(format!("store {}", cfg.store.path));
+        }
+        for proxy in &cfg.proxies {
+            lines.push(format!(
+                "proxy  {} [{}] local {}:{}",
+                proxy.name(),
+                proxy.proxy_type(),
+                proxy.base().local_ip,
+                proxy.base().local_port
+            ));
+        }
+        for visitor in &cfg.visitors {
+            lines.push(format!(
+                "visitor {} [{}] bind {}:{} -> {}",
+                visitor.name(),
+                visitor.visitor_type(),
+                visitor.base().bind_addr,
+                visitor.base().bind_port,
+                visitor.base().server_name
+            ));
+        }
+        for file in &cfg.included_files {
+            lines.push(format!("include {}", file.display()));
+        }
+        lines.join("\n")
     }
 
     pub fn shutdown_token(&self) -> CancellationToken {
@@ -60,43 +132,10 @@ impl Service {
         self.cancel.cancel();
     }
 
-    /// A human readable summary, used by `rust-frp frpc --verify`.
-    pub fn describe(&self) -> String {
-        let mut lines = vec![format!(
-            "server {}:{} (protocol {}, tcpMux {}, tls {})",
-            self.cfg.common.server_addr,
-            self.cfg.common.server_port,
-            self.cfg.common.transport.protocol,
-            self.cfg.common.transport.tcp_mux_enabled(),
-            self.cfg.common.transport.tls.enabled_for("tcp"),
-        )];
-        for proxy in &self.cfg.proxies {
-            lines.push(format!(
-                "proxy  {} [{}] local {}:{}",
-                proxy.name(),
-                proxy.proxy_type(),
-                proxy.base().local_ip,
-                proxy.base().local_port
-            ));
-        }
-        for visitor in &self.cfg.visitors {
-            lines.push(format!(
-                "visitor {} [{}] bind {}:{} -> {}",
-                visitor.name(),
-                visitor.visitor_type(),
-                visitor.base().bind_addr,
-                visitor.base().bind_port,
-                visitor.base().server_name
-            ));
-        }
-        for file in &self.cfg.included_files {
-            lines.push(format!("include {}", file.display()));
-        }
-        lines.join("\n")
-    }
-
     /// Runs until the shutdown token is cancelled.
     pub async fn run(self) -> Result<()> {
+        self.start_admin();
+
         let mut run_id = String::new();
         let mut first = true;
         let mut backoff = INITIAL_BACKOFF;
@@ -106,11 +145,13 @@ impl Service {
                 return Ok(());
             }
 
-            match self.login_once(&run_id).await {
+            let cfg = self.state.current.read().unwrap().clone();
+            match self.login_once(&run_id, &cfg).await {
                 Ok(handle) => {
                     run_id = handle.run_id.clone();
                     backoff = INITIAL_BACKOFF;
                     first = false;
+                    *self.state.live.lock().unwrap() = Some(handle.clone());
 
                     let cancel = self.cancel.clone();
                     tokio::select! {
@@ -128,7 +169,7 @@ impl Service {
                     }
                 }
                 Err(e) => {
-                    if first && self.cfg.common.login_fail_exit_enabled() {
+                    if first && self.state.current.read().unwrap().common.login_fail_exit_enabled() {
                         return Err(e);
                     }
                     warn!(error = %e, "login attempt failed, retrying");
@@ -150,13 +191,35 @@ impl Service {
         }
     }
 
+    /// Spawns the admin server when `[webServer]` is configured.
+    fn start_admin(&self) {
+        let enabled = self
+            .state
+            .current
+            .read()
+            .unwrap()
+            .common
+            .web_server
+            .bind_addr()
+            .is_some();
+        if !enabled {
+            return;
+        }
+        let state = self.state.clone();
+        tokio::spawn(async move {
+            if let Err(e) = crate::admin::run(state).await {
+                warn!(error = %e, "admin server stopped");
+            }
+        });
+    }
+
     /// One attempt at establishing a control session.
-    async fn login_once(&self, previous_run_id: &str) -> Result<ControlHandle> {
+    async fn login_once(&self, previous_run_id: &str, cfg: &ClientConfig) -> Result<ControlHandle> {
         // A fresh connector per session: with TCPMux on it owns the yamux
         // session, which cannot be reused once it has died.
-        let connector = Arc::new(Connector::new(Arc::new(self.cfg.common.clone())));
+        let connector = Arc::new(Connector::new(Arc::new(cfg.common.clone())));
         info!(
-            server = %format!("{}:{}", self.cfg.common.server_addr, self.cfg.common.server_port),
+            server = %format!("{}:{}", cfg.common.server_addr, cfg.common.server_port),
             "connecting to the server"
         );
         connector
@@ -166,7 +229,7 @@ impl Service {
 
         let handshake = match dial_and_login(
             &connector,
-            &self.cfg.common,
+            &cfg.common,
             &self.token,
             previous_run_id,
         )
@@ -182,12 +245,12 @@ impl Service {
         info!(run_id = %handshake.run_id, "logged in");
 
         start_session(
-            Arc::new(self.cfg.common.clone()),
+            Arc::new(cfg.common.clone()),
             self.token.clone(),
             connector,
             handshake,
-            &self.cfg.proxies,
-            &self.cfg.visitors,
+            &cfg.proxies,
+            &cfg.visitors,
         )
         .await
     }
@@ -227,7 +290,7 @@ bindPort = 9000
 "#,
             ConfigFormat::Toml,
         );
-        let service = Service::new(cfg).unwrap();
+        let service = Service::new(cfg, None).unwrap();
         let text = service.describe();
         assert!(text.contains("frps.example.com:7000"));
         assert!(text.contains("tcpMux true"));
@@ -248,7 +311,7 @@ path = "/nonexistent/frp-token"
 "#,
             ConfigFormat::Toml,
         );
-        assert!(Service::new(cfg).is_err());
+        assert!(Service::new(cfg, None).is_err());
     }
 
     #[test]
@@ -261,7 +324,7 @@ token = "s3cret"
 "#,
             ConfigFormat::Toml,
         );
-        let service = Service::new(cfg).unwrap();
+        let service = Service::new(cfg, None).unwrap();
         assert_eq!(service.token, "s3cret");
     }
 }

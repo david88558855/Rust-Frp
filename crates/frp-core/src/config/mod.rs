@@ -15,8 +15,8 @@ pub mod server;
 
 pub use client::{
     AuthClientConfig, ClientCommonConfig, ClientConfig, ClientConfigFile, ClientTransportConfig,
-    StcpVisitorConfig, SudpVisitorConfig, TlsClientConfig, VisitorBaseConfig, VisitorConfig,
-    VisitorTransport, XtcpVisitorConfig,
+    StcpVisitorConfig, StoreConfig, SudpVisitorConfig, TlsClientConfig, VisitorBaseConfig,
+    VisitorConfig, VisitorTransport, XtcpVisitorConfig,
 };
 pub use common::{
     AuthMethod, AuthScope, HeaderOperations, HttpHeader, HttpPluginOptions, LogConfig, QUICOptions,

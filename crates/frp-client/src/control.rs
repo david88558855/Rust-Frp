@@ -320,7 +320,7 @@ impl ControlHandle {
     }
 
     /// Snapshots every proxy's status for logging or the admin API.
-    pub fn proxy_statuses(&self) -> Vec<(String, String, &'static str, String, String)> {
+    pub fn proxy_statuses(&self) -> Vec<crate::proxy::ProxyStatus> {
         self.proxies.statuses()
     }
 
