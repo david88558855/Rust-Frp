@@ -74,3 +74,19 @@ jobs:
           path: |
             target/release/${{ matrix.bin }}
           if-no-files-found: warn
+
+  # Runs frps and frpc against each other over real sockets. Unit tests cannot
+  # catch a peer protocol mismatch: the visitor signature check used to compile,
+  # pass every test, and still reject every visitor connection.
+  e2e:
+    name: end to end
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release --workspace
+      - name: Run the e2e suite
+        run: python3 tests/e2e/e2e.py target/release/rust-frp
