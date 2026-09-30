@@ -73,7 +73,8 @@ def normalise_status(payload):
 
 
 def assert_envelope(body: bytes, expected_code: int) -> dict:
-    obj = json.loads(body)
+    # Go's json.NewEncoder appends a trailing newline; tolerate it.
+    obj = json.loads(body.rstrip())
     assert set(obj.keys()) == {"Code", "Msg"}, (
         f"error envelope keys: {sorted(obj.keys())}"
     )
