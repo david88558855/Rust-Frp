@@ -1,28 +1,31 @@
 name: Format
 
-# Formatting is observed on every push but never blocks: the repository is
-# developed without a local Rust toolchain, so patches are written by hand and
-# cannot be reformatted before they land. Failing the check would only mean a
-# red tick with no way for the author to see what rustfmt wants.
+# Formatting is a hard gate. The tree is canonical as of the `style: apply
+# cargo fmt` commit, so a diff here means a patch drifted rather than that the
+# check is noisy.
 #
-# The job therefore always succeeds and publishes the diff it would apply to
-# the run summary. Run it manually with `apply: false` to turn the check into a
-# hard gate (useful right after a formatting sweep), or locally as
-# `cargo fmt --all` to take the canonical form.
+# The repository still has no local Rust toolchain, but that is no longer a
+# reason to tolerate drift: the "Apply rustfmt" workflow runs the same
+# `cargo fmt --all` on the runner and commits the result, so a failure here has
+# a one click remedy. Run it from the Actions tab, then pull.
+#
+# `workflow_dispatch` with `apply: false` keeps the original report-only mode
+# for the case where the diff itself is what you want to read.
 on:
   push:
   pull_request:
   workflow_dispatch:
     inputs:
       apply:
-        description: "Print the rustfmt diff instead of failing fast"
+        description: "Report the diff without failing the job"
         type: boolean
-        default: true
+        default: false
 
 jobs:
   fmt:
     name: rustfmt
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -30,31 +33,30 @@ jobs:
           components: rustfmt
       - name: Check formatting
         id: check
-        # `apply: true` (the push default) keeps this step green; only a manual
-        # run with `apply: false` lets it fail the job.
-        continue-on-error: ${{ github.event_name != 'workflow_dispatch' || inputs.apply }}
+        # Only a manual run may downgrade this to a report.
+        continue-on-error: ${{ github.event_name == 'workflow_dispatch' && inputs.apply }}
         run: cargo fmt --all -- --check
-      - name: Record the formatting verdict
+      - name: Publish the diff to the summary
         if: always()
         run: |
           {
             echo "### rustfmt"
             echo
             if [ "${{ steps.check.outcome }}" = "success" ]; then
-              echo "The tree is **already canonical**; \`cargo fmt --all\` would change nothing."
+              echo "The tree is canonical; \`cargo fmt --all\` would change nothing."
             else
-              echo "The tree is **not canonical**. \`cargo fmt --all\` would change:"
+              echo "The tree is **not canonical**."
+              echo
+              echo "Run the **Apply rustfmt** workflow to commit the canonical form,"
+              echo "then pull. The diff it would apply:"
               echo
               echo '```'
               cargo fmt --all
               git --no-pager diff --stat
               echo '```'
-              echo
-              echo "Messages such as \`Diff in ... at line N\` are the line numbers"
-              echo "rustfmt actually reports; the full patch is in the step log."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Show the diff to apply
+      - name: Show the diff
         if: always()
         run: |
           cargo fmt --all
