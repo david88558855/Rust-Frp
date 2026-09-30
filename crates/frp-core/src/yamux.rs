@@ -406,10 +406,6 @@ impl StreamInner {
     fn wake_write(&self) {
         self.write_waker.wake();
     }
-
-    fn wake_read(&self) {
-        self.read_waker.wake();
-    }
 }
 
 /// A single logical stream inside a [`Session`].
@@ -645,24 +641,25 @@ impl Session {
 
     /// Waits for the peer to open a stream, or `None` once the session ends.
     pub async fn accept(&mut self) -> Option<Stream> {
-        loop {
-            let closed = *self.closed_rx.borrow();
-            if closed {
-                return None;
-            }
-            match self.accept_rx.try_recv() {
-                Ok(inner) => return Some(self.claim(inner)),
-                Err(mpsc::error::TryRecvError::Disconnected) => return None,
-                Err(mpsc::error::TryRecvError::Empty) => {}
-            }
-            tokio::select! {
-                biased;
-                received = self.accept_rx.recv() => match received {
-                    Some(inner) => return Some(self.claim(inner)),
-                    None => return None,
-                },
-                _ = self.closed_rx.changed() => return None,
-            }
+        let closed = *self.closed_rx.borrow();
+        if closed {
+            return None;
+        }
+        // Drain whatever the reader already queued before parking.
+        match self.accept_rx.try_recv() {
+            Ok(inner) => return Some(self.claim(inner)),
+            Err(mpsc::error::TryRecvError::Disconnected) => return None,
+            Err(mpsc::error::TryRecvError::Empty) => {}
+        }
+        // `changed()` is version based, so a close that landed between the
+        // check above and this await still completes immediately.
+        tokio::select! {
+            biased;
+            received = self.accept_rx.recv() => match received {
+                Some(inner) => Some(self.claim(inner)),
+                None => None,
+            },
+            _ = self.closed_rx.changed() => None,
         }
     }
 
@@ -967,7 +964,7 @@ mod tests {
     #[tokio::test]
     async fn data_flows_both_ways_and_fin_becomes_eof() {
         let (a, b) = tokio::io::duplex(64 * 1024);
-        let mut client = client_session(a);
+        let client = client_session(a);
         let mut server = server_session(b);
 
         let server_task = tokio::spawn(async move {
@@ -999,7 +996,7 @@ mod tests {
     #[tokio::test]
     async fn bulk_transfer_stalls_and_resumes_on_window_updates() {
         let (a, b) = tokio::io::duplex(16 * 1024);
-        let mut client = client_session(a);
+        let client = client_session(a);
         let mut server = server_session(b);
 
         // Far more than the initial 256 KiB window, so the writer can only
@@ -1023,7 +1020,7 @@ mod tests {
     #[tokio::test]
     async fn several_streams_are_independent() {
         let (a, b) = tokio::io::duplex(64 * 1024);
-        let mut client = client_session(a);
+        let client = client_session(a);
         let mut server = server_session(b);
 
         let server_task = tokio::spawn(async move {

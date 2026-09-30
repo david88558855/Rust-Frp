@@ -18,7 +18,7 @@ pub fn decode(s: &str) -> Result<Vec<u8>, base64::DecodeError> {
 pub mod opt_stdlib {
     use super::*;
 
-    pub fn serialize<S>(v: &Vec<u8>, s: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(v: &[u8], s: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
