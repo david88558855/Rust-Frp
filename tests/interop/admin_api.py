@@ -28,6 +28,7 @@ import urllib.error
 import urllib.request
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+WORK = tempfile.mkdtemp(prefix="frp-admin-")
 sys.path.insert(0, THIS_DIR)
 import interop as I  # noqa: E402
 
@@ -85,7 +86,9 @@ def assert_envelope(body: bytes, expected_code: int) -> dict:
     return obj
 
 
-def common_cfg(admin_port: int, server_port: int, remote_port: int) -> str:
+def common_cfg(
+    admin_port: int, server_port: int, remote_port: int, store_path: str
+) -> str:
     """A client config that exercises every admin surface that does not need a
     real backend service (admin-tcp runs against an unreachable local port --
     status records ``start error`` and that is what /api/status surfaces)."""
@@ -98,6 +101,9 @@ def common_cfg(admin_port: int, server_port: int, remote_port: int) -> str:
         f"port = {admin_port}",
         'user = "admin"',
         'password = "secret"',
+        "",
+        "[store]",
+        f'path = "{store_path}"',
         "",
         "[auth]",
         'method = "token"',
@@ -267,7 +273,8 @@ def main() -> int:
     fingerprints: dict = {}
 
     def run_peer(binary: str, log_prefix: str, name: str):
-        cfg = common_cfg(ADMIN_PORT, CTRL_PORT, REMOTE_PORT_BASE)
+        store_path = os.path.join(WORK, f"store-{name}.json")
+        cfg = common_cfg(ADMIN_PORT, CTRL_PORT, REMOTE_PORT_BASE, store_path)
         node = I.Node(binary, "frpc", cfg, log_prefix)
         node.start()
         if not wait_for_admin(ADMIN_PORT, timeout=30):
