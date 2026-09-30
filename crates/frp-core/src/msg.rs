@@ -194,7 +194,11 @@ impl MsgType {
 pub struct ClientSpec {
     #[serde(rename = "type", default, skip_serializing_if = "is_zero::string")]
     pub client_type: String,
-    #[serde(rename = "always_auth_pass", default, skip_serializing_if = "is_zero::bool")]
+    #[serde(
+        rename = "always_auth_pass",
+        default,
+        skip_serializing_if = "is_zero::bool"
+    )]
     pub always_auth_pass: bool,
 }
 
@@ -211,7 +215,11 @@ pub struct Login {
     pub arch: String,
     #[serde(rename = "user", default, skip_serializing_if = "is_zero::string")]
     pub user: String,
-    #[serde(rename = "privilege_key", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "privilege_key",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub privilege_key: String,
     #[serde(rename = "timestamp", default, skip_serializing_if = "is_zero::i64")]
     pub timestamp: i64,
@@ -239,17 +247,41 @@ pub struct LoginResp {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NewProxy {
-    #[serde(rename = "proxy_name", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "proxy_name",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub proxy_name: String,
-    #[serde(rename = "proxy_type", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "proxy_type",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub proxy_type: String,
-    #[serde(rename = "use_encryption", default, skip_serializing_if = "is_zero::bool")]
+    #[serde(
+        rename = "use_encryption",
+        default,
+        skip_serializing_if = "is_zero::bool"
+    )]
     pub use_encryption: bool,
-    #[serde(rename = "use_compression", default, skip_serializing_if = "is_zero::bool")]
+    #[serde(
+        rename = "use_compression",
+        default,
+        skip_serializing_if = "is_zero::bool"
+    )]
     pub use_compression: bool,
-    #[serde(rename = "bandwidth_limit", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "bandwidth_limit",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub bandwidth_limit: String,
-    #[serde(rename = "bandwidth_limit_mode", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "bandwidth_limit_mode",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub bandwidth_limit_mode: String,
     #[serde(rename = "group", default, skip_serializing_if = "is_zero::string")]
     pub group: String,
@@ -261,7 +293,11 @@ pub struct NewProxy {
     pub annotations: HashMap<String, String>,
     #[serde(rename = "remote_port", default, skip_serializing_if = "is_zero::i32")]
     pub remote_port: i32,
-    #[serde(rename = "custom_domains", default, skip_serializing_if = "is_zero::slice")]
+    #[serde(
+        rename = "custom_domains",
+        default,
+        skip_serializing_if = "is_zero::slice"
+    )]
     pub custom_domains: Vec<String>,
     #[serde(rename = "subdomain", default, skip_serializing_if = "is_zero::string")]
     pub sub_domain: String,
@@ -271,27 +307,55 @@ pub struct NewProxy {
     pub http_user: String,
     #[serde(rename = "http_pwd", default, skip_serializing_if = "is_zero::string")]
     pub http_pwd: String,
-    #[serde(rename = "host_header_rewrite", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "host_header_rewrite",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub host_header_rewrite: String,
     #[serde(rename = "headers", default, skip_serializing_if = "is_zero::map")]
     pub headers: HashMap<String, String>,
-    #[serde(rename = "response_headers", default, skip_serializing_if = "is_zero::map")]
+    #[serde(
+        rename = "response_headers",
+        default,
+        skip_serializing_if = "is_zero::map"
+    )]
     pub response_headers: HashMap<String, String>,
-    #[serde(rename = "route_by_http_user", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "route_by_http_user",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub route_by_http_user: String,
     #[serde(rename = "sk", default, skip_serializing_if = "is_zero::string")]
     pub sk: String,
-    #[serde(rename = "allow_users", default, skip_serializing_if = "is_zero::slice")]
+    #[serde(
+        rename = "allow_users",
+        default,
+        skip_serializing_if = "is_zero::slice"
+    )]
     pub allow_users: Vec<String>,
-    #[serde(rename = "multiplexer", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "multiplexer",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub multiplexer: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NewProxyResp {
-    #[serde(rename = "proxy_name", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "proxy_name",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub proxy_name: String,
-    #[serde(rename = "remote_addr", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "remote_addr",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub remote_addr: String,
     #[serde(rename = "error", default, skip_serializing_if = "is_zero::string")]
     pub error: String,
@@ -299,7 +363,11 @@ pub struct NewProxyResp {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct CloseProxy {
-    #[serde(rename = "proxy_name", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "proxy_name",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub proxy_name: String,
 }
 
@@ -307,7 +375,11 @@ pub struct CloseProxy {
 pub struct NewWorkConn {
     #[serde(rename = "run_id", default, skip_serializing_if = "is_zero::string")]
     pub run_id: String,
-    #[serde(rename = "privilege_key", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "privilege_key",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub privilege_key: String,
     #[serde(rename = "timestamp", default, skip_serializing_if = "is_zero::i64")]
     pub timestamp: i64,
@@ -318,7 +390,11 @@ pub struct ReqWorkConn {}
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct StartWorkConn {
-    #[serde(rename = "proxy_name", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "proxy_name",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub proxy_name: String,
     #[serde(rename = "src_addr", default, skip_serializing_if = "is_zero::string")]
     pub src_addr: String,
@@ -336,21 +412,37 @@ pub struct StartWorkConn {
 pub struct NewVisitorConn {
     #[serde(rename = "run_id", default, skip_serializing_if = "is_zero::string")]
     pub run_id: String,
-    #[serde(rename = "proxy_name", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "proxy_name",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub proxy_name: String,
     #[serde(rename = "sign_key", default, skip_serializing_if = "is_zero::string")]
     pub sign_key: String,
     #[serde(rename = "timestamp", default, skip_serializing_if = "is_zero::i64")]
     pub timestamp: i64,
-    #[serde(rename = "use_encryption", default, skip_serializing_if = "is_zero::bool")]
+    #[serde(
+        rename = "use_encryption",
+        default,
+        skip_serializing_if = "is_zero::bool"
+    )]
     pub use_encryption: bool,
-    #[serde(rename = "use_compression", default, skip_serializing_if = "is_zero::bool")]
+    #[serde(
+        rename = "use_compression",
+        default,
+        skip_serializing_if = "is_zero::bool"
+    )]
     pub use_compression: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NewVisitorConnResp {
-    #[serde(rename = "proxy_name", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "proxy_name",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub proxy_name: String,
     #[serde(rename = "error", default, skip_serializing_if = "is_zero::string")]
     pub error: String,
@@ -358,7 +450,11 @@ pub struct NewVisitorConnResp {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Ping {
-    #[serde(rename = "privilege_key", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "privilege_key",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub privilege_key: String,
     #[serde(rename = "timestamp", default, skip_serializing_if = "is_zero::i64")]
     pub timestamp: i64,
@@ -411,7 +507,12 @@ impl UdpAddrJson {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct UdpPacket {
-    #[serde(rename = "c", default, with = "crate::b64::opt_stdlib", skip_serializing_if = "is_zero::bytes")]
+    #[serde(
+        rename = "c",
+        default,
+        with = "crate::b64::opt_stdlib",
+        skip_serializing_if = "is_zero::bytes"
+    )]
     pub content: Vec<u8>,
     #[serde(rename = "l", default, skip_serializing_if = "is_zero::opt")]
     pub local_addr: Option<UdpAddrJson>,
@@ -421,9 +522,17 @@ pub struct UdpPacket {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NatHoleVisitor {
-    #[serde(rename = "transaction_id", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "transaction_id",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub transaction_id: String,
-    #[serde(rename = "proxy_name", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "proxy_name",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub proxy_name: String,
     #[serde(rename = "pre_check", default, skip_serializing_if = "is_zero::bool")]
     pub pre_check: bool,
@@ -433,23 +542,47 @@ pub struct NatHoleVisitor {
     pub sign_key: String,
     #[serde(rename = "timestamp", default, skip_serializing_if = "is_zero::i64")]
     pub timestamp: i64,
-    #[serde(rename = "mapped_addrs", default, skip_serializing_if = "is_zero::slice")]
+    #[serde(
+        rename = "mapped_addrs",
+        default,
+        skip_serializing_if = "is_zero::slice"
+    )]
     pub mapped_addrs: Vec<String>,
-    #[serde(rename = "assisted_addrs", default, skip_serializing_if = "is_zero::slice")]
+    #[serde(
+        rename = "assisted_addrs",
+        default,
+        skip_serializing_if = "is_zero::slice"
+    )]
     pub assisted_addrs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NatHoleClient {
-    #[serde(rename = "transaction_id", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "transaction_id",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub transaction_id: String,
-    #[serde(rename = "proxy_name", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "proxy_name",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub proxy_name: String,
     #[serde(rename = "sid", default, skip_serializing_if = "is_zero::string")]
     pub sid: String,
-    #[serde(rename = "mapped_addrs", default, skip_serializing_if = "is_zero::slice")]
+    #[serde(
+        rename = "mapped_addrs",
+        default,
+        skip_serializing_if = "is_zero::slice"
+    )]
     pub mapped_addrs: Vec<String>,
-    #[serde(rename = "assisted_addrs", default, skip_serializing_if = "is_zero::slice")]
+    #[serde(
+        rename = "assisted_addrs",
+        default,
+        skip_serializing_if = "is_zero::slice"
+    )]
     pub assisted_addrs: Vec<String>,
 }
 
@@ -469,29 +602,57 @@ pub struct NatHoleDetectBehavior {
     pub mode: i32,
     #[serde(rename = "ttl", default, skip_serializing_if = "is_zero::i32")]
     pub ttl: i32,
-    #[serde(rename = "send_delay_ms", default, skip_serializing_if = "is_zero::i32")]
+    #[serde(
+        rename = "send_delay_ms",
+        default,
+        skip_serializing_if = "is_zero::i32"
+    )]
     pub send_delay_ms: i32,
     #[serde(rename = "read_timeout", default, skip_serializing_if = "is_zero::i32")]
     pub read_timeout: i32,
-    #[serde(rename = "candidate_ports", default, skip_serializing_if = "is_zero::slice")]
+    #[serde(
+        rename = "candidate_ports",
+        default,
+        skip_serializing_if = "is_zero::slice"
+    )]
     pub candidate_ports: Vec<PortsRange>,
-    #[serde(rename = "send_random_ports", default, skip_serializing_if = "is_zero::i32")]
+    #[serde(
+        rename = "send_random_ports",
+        default,
+        skip_serializing_if = "is_zero::i32"
+    )]
     pub send_random_ports: i32,
-    #[serde(rename = "listen_random_ports", default, skip_serializing_if = "is_zero::i32")]
+    #[serde(
+        rename = "listen_random_ports",
+        default,
+        skip_serializing_if = "is_zero::i32"
+    )]
     pub listen_random_ports: i32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NatHoleResp {
-    #[serde(rename = "transaction_id", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "transaction_id",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub transaction_id: String,
     #[serde(rename = "sid", default, skip_serializing_if = "is_zero::string")]
     pub sid: String,
     #[serde(rename = "protocol", default, skip_serializing_if = "is_zero::string")]
     pub protocol: String,
-    #[serde(rename = "candidate_addrs", default, skip_serializing_if = "is_zero::slice")]
+    #[serde(
+        rename = "candidate_addrs",
+        default,
+        skip_serializing_if = "is_zero::slice"
+    )]
     pub candidate_addrs: Vec<String>,
-    #[serde(rename = "assisted_addrs", default, skip_serializing_if = "is_zero::slice")]
+    #[serde(
+        rename = "assisted_addrs",
+        default,
+        skip_serializing_if = "is_zero::slice"
+    )]
     pub assisted_addrs: Vec<String>,
     #[serde(rename = "detect_behavior", default)]
     pub detect_behavior: NatHoleDetectBehavior,
@@ -501,7 +662,11 @@ pub struct NatHoleResp {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NatHoleSid {
-    #[serde(rename = "transaction_id", default, skip_serializing_if = "is_zero::string")]
+    #[serde(
+        rename = "transaction_id",
+        default,
+        skip_serializing_if = "is_zero::string"
+    )]
     pub transaction_id: String,
     #[serde(rename = "sid", default, skip_serializing_if = "is_zero::string")]
     pub sid: String,
@@ -669,7 +834,6 @@ mod tests {
         assert!(!text.contains("\"privilege_key\""));
         assert!(!text.contains("\"run_id\""));
         assert!(!text.contains("\"hostname\""));
-    }
     }
 
     #[test]

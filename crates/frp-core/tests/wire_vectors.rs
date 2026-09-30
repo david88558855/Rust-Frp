@@ -72,8 +72,8 @@ fn load() -> VectorFile {
     path.pop();
     path.pop();
     path.push("tests/interop/vectors/msg_vectors.json");
-    let raw = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let raw =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     serde_json::from_str(&raw).expect("parse the vector corpus")
 }
 
@@ -103,8 +103,8 @@ fn compare(want: &[u8], got: &[u8]) -> Result<Match, String> {
     if want == got {
         return Ok(Match::Bytes);
     }
-    let want_v: serde_json::Value = serde_json::from_slice(want)
-        .map_err(|e| format!("upstream body is not JSON: {e}"))?;
+    let want_v: serde_json::Value =
+        serde_json::from_slice(want).map_err(|e| format!("upstream body is not JSON: {e}"))?;
     let got_v: serde_json::Value =
         serde_json::from_slice(got).map_err(|e| format!("our body is not JSON: {e}"))?;
     if want_v == got_v {
@@ -326,7 +326,10 @@ fn zero_valued_messages_serialise_to_an_empty_object() {
         ("Login", Message::Login(Login::default())),
         ("LoginResp", Message::LoginResp(LoginResp::default())),
         ("NewProxy", Message::NewProxy(NewProxy::default())),
-        ("NewProxyResp", Message::NewProxyResp(NewProxyResp::default())),
+        (
+            "NewProxyResp",
+            Message::NewProxyResp(NewProxyResp::default()),
+        ),
         ("CloseProxy", Message::CloseProxy(CloseProxy::default())),
         ("NewWorkConn", Message::NewWorkConn(NewWorkConn::default())),
         ("ReqWorkConn", Message::ReqWorkConn(ReqWorkConn::default())),
@@ -380,7 +383,9 @@ fn zero_valued_messages_serialise_to_an_empty_object() {
     // NatHoleResp is checked separately: its `detect_behavior` has no omitempty
     // upstream, so it is always present as an object even when all inner fields
     // are zero.
-    let resp = Message::NatHoleResp(NatHoleResp::default()).encode_json().unwrap();
+    let resp = Message::NatHoleResp(NatHoleResp::default())
+        .encode_json()
+        .unwrap();
     let text = String::from_utf8_lossy(&resp);
     if text != r#"{"detect_behavior":{}}"# {
         failures.push(format!("NatHoleResp: got {text}"));
@@ -410,9 +415,12 @@ fn struct_typed_fields_survive_omitempty() {
         "ClientSpec has no omitempty upstream, so it is always emitted"
     );
 
-    let resp =
-        String::from_utf8(Message::NatHoleResp(NatHoleResp::default()).encode_json().unwrap())
-            .unwrap();
+    let resp = String::from_utf8(
+        Message::NatHoleResp(NatHoleResp::default())
+            .encode_json()
+            .unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         resp, r#"{"detect_behavior":{}}"#,
         "DetectBehavior has no omitempty upstream, so it is always emitted"
@@ -436,6 +444,8 @@ fn udp_addr_always_emits_all_three_keys() {
         "UDPAddr must keep Zone even when empty, got {text}"
     );
     // And the nil remote end is omitted rather than rendered as null.
-    assert!(!text.contains(r#""r""#), "nil remote_addr should be omitted: {text}");
+    assert!(
+        !text.contains(r#""r""#),
+        "nil remote_addr should be omitted: {text}"
+    );
 }
-
