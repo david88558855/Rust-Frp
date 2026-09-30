@@ -294,7 +294,9 @@ mod tests {
             "Basic dTpw".parse().unwrap(), // "u:p"
         );
         assert!(plugin.authorised(&headers));
-        assert!(!HttpProxyPlugin::new("", "").authorised(&HeaderMap::new()));
+        // An empty pair disables the check, so no credentials are accepted as
+        // "nothing to check" rather than rejected.
+        assert!(HttpProxyPlugin::new("", "").authorised(&HeaderMap::new()));
     }
 
     #[test]

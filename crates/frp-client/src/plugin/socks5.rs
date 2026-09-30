@@ -139,10 +139,12 @@ async fn serve(
     let remote = match timeout(DIAL_TIMEOUT, TcpStream::connect(&target)).await {
         Ok(Ok(stream)) => stream,
         Ok(Err(e)) => {
-            let code = if e.kind() == std::io::ErrorKind::ConnectionRefused {
-                REP_CONNECTION_REFUSED
-            } else {
-                REP_HOST_UNREACHABLE
+            let code = match e.kind() {
+                std::io::ErrorKind::ConnectionRefused => REP_CONNECTION_REFUSED,
+                // A name that does not resolve is a host the client cannot
+                // reach, which is what the reply code means.
+                std::io::ErrorKind::NotFound => REP_HOST_UNREACHABLE,
+                _ => REP_GENERAL_FAILURE,
             };
             reply(&mut conn, code, None).await?;
             return Err(e).with_context(|| format!("connect to {target}"));
