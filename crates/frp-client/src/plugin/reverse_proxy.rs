@@ -180,7 +180,7 @@ impl BridgePlugin {
             out.append(name.clone(), value.clone());
         }
         if self.kind.copies_x_forwarded() {
-            for name in [X_FORWARDED_FOR, X_FORWARDED_HOST, X_FORWARDED_PROTO] {
+            for name in [&X_FORWARDED_FOR, &X_FORWARDED_HOST, &X_FORWARDED_PROTO] {
                 for value in in_headers.get_all(name) {
                     out.append(name.clone(), value.clone());
                 }

@@ -148,9 +148,7 @@ impl PluginConfig {
             PluginConfig::Https2Http { enable_http2, .. }
             | PluginConfig::Https2Https { enable_http2, .. } => {
                 // Upstream: `util.EmptyOr(enableHTTP2, lo.ToPtr(true))`.
-                if enable_http2.is_none() {
-                    *enable_http2 = Some(true);
-                }
+                enable_http2.get_or_insert(true);
             }
             _ => {}
         }
@@ -294,13 +292,12 @@ mod tests {
         let mut cfg = parse(r#"{"type":"https2https","localAddr":"127.0.0.1:8443"}"#);
         assert!(cfg.http2_enabled());
         cfg.complete();
-        assert_eq!(cfg.http2_enabled(), true);
+        assert!(cfg.http2_enabled());
 
-        let mut cfg = parse(
-            r#"{"type":"https2https","localAddr":"127.0.0.1:8443","enableHTTP2":false}"#,
-        );
+        let mut cfg =
+            parse(r#"{"type":"https2https","localAddr":"127.0.0.1:8443","enableHTTP2":false}"#);
         cfg.complete();
-        assert_eq!(cfg.http2_enabled(), false);
+        assert!(!cfg.http2_enabled());
     }
 
     #[test]

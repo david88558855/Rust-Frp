@@ -20,7 +20,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Full};
@@ -133,13 +133,15 @@ async fn serve(
         hyper_util::server::conn::auto::Builder::new(TokioExecutor::new())
             .serve_connection_with_upgrades(TokioIo::new(io), service)
             .await
-            .context("serve a plugin connection")?;
+            // hyper reports a boxed error here, which `anyhow::Context` will not
+            // take directly.
+            .map_err(|e| anyhow!("serve a plugin connection: {e}"))?;
     } else {
         hyper::server::conn::http1::Builder::new()
             .serve_connection(TokioIo::new(io), service)
             .with_upgrades()
             .await
-            .context("serve a plugin connection")?;
+            .map_err(|e| anyhow!("serve a plugin connection: {e}"))?;
     }
     Ok(())
 }

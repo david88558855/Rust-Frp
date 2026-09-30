@@ -308,7 +308,12 @@ mod tests {
     #[test]
     fn virtual_net_is_refused_by_name() {
         let cfg: PluginConfig = serde_json::from_str(r#"{"type":"virtual_net"}"#).unwrap();
-        let err = create(&cfg).unwrap_err().to_string();
+        // `unwrap_err` cannot be used: the success type is a trait object
+        // without `Debug`.
+        let err = match create(&cfg) {
+            Ok(_) => panic!("virtual_net must be refused"),
+            Err(e) => e.to_string(),
+        };
         assert!(err.contains("virtual_net"), "{err}");
     }
 }
