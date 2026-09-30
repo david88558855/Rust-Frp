@@ -1,0 +1,19 @@
+# Build output
+/target
+**/*.rs.bk
+*.pdb
+*.ilk
+
+# Editor / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Local runtime artifacts
+/releases
+*.log
+frps.toml
+frpc.toml
+db.json

@@ -1,0 +1,22 @@
+[package]
+name = "frp-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "rust-frp - unified frps/frpc command line entrypoint"
+
+[[bin]]
+name = "rust-frp"
+path = "src/main.rs"
+
+[dependencies]
+frp-core.workspace = true
+frp-server.workspace = true
+frp-client.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
