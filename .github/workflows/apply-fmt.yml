@@ -1,0 +1,59 @@
+name: Apply rustfmt
+
+# One shot helper, kept out of the way of the normal workflows.
+#
+# This repository is developed without a local Rust toolchain, so `cargo fmt`
+# cannot be run where the patches are written. The Format workflow reports the
+# diff; this workflow is how the canonical form actually gets applied, using the
+# same toolchain the check uses so the two cannot disagree.
+#
+# It only ever rewrites whitespace and trailing commas -- rustfmt does not change
+# semantics -- but the resulting commit is still verified by a normal CI run.
+#
+# Run it manually and delete it once the tree is canonical.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    name: cargo fmt and commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The default token is what pushes the commit back.
+          token: ${{ github.token }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Apply and summarise
+        id: fmt
+        run: |
+          cargo fmt --all
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "already canonical, nothing to commit"
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          git --no-pager diff --stat
+
+      - name: Commit and push
+        if: steps.fmt.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -F- <<'MSG'
+          style: apply cargo fmt to the workspace
+
+          Whitespace and trailing commas only. Produced by the Apply rustfmt
+          workflow on the same stable toolchain the Format check uses, so the
+          two cannot disagree.
+          MSG
+          git push
