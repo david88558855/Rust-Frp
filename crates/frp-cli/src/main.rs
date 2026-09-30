@@ -71,7 +71,10 @@ fn main() -> Result<()> {
 
 fn print_info() {
     println!("rust-frp {FRP_VERSION}");
-    println!("wire protocol  : v1 (type:u8 | len:i64 BE | json), max payload {} bytes", codec::MAX_MSG_LENGTH);
+    println!(
+        "wire protocol  : v1 (type:u8 | len:i64 BE | json), max payload {} bytes",
+        codec::MAX_MSG_LENGTH
+    );
     println!("auth           : md5(token || timestamp)");
     println!("encryption     : aes-128-cfb, pbkdf2-hmac-sha1(token, \"crypto\", 64, 16), 16 byte iv prefix");
     println!("compression    : snappy framed stream (crc32c masked)");

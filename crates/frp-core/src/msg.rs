@@ -136,11 +136,7 @@ impl MsgType {
 pub struct ClientSpec {
     #[serde(rename = "type", default, skip_serializing_if = "String::is_empty")]
     pub client_type: String,
-    #[serde(
-        rename = "always_auth_pass",
-        default,
-        skip_serializing_if = "is_false"
-    )]
+    #[serde(rename = "always_auth_pass", default, skip_serializing_if = "is_false")]
     pub always_auth_pass: bool,
 }
 

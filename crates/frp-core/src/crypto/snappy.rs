@@ -22,7 +22,9 @@ const MAX_BLOCK_SIZE: usize = 65536;
 
 /// Masked CRC-32C used by golang/snappy framed chunks.
 pub fn chunk_crc(data: &[u8]) -> u32 {
-    crc32c::crc32c(data).rotate_right(15).wrapping_add(0xa282_ead8)
+    crc32c::crc32c(data)
+        .rotate_right(15)
+        .wrapping_add(0xa282_ead8)
 }
 
 fn corrupt(msg: &'static str) -> io::Error {
@@ -154,7 +156,10 @@ mod tests {
     fn crc_masking_matches_go() {
         let data = b"hello world";
         let raw = crc32c::crc32c(data);
-        assert_eq!(chunk_crc(data), raw.rotate_right(15).wrapping_add(0xa282_ead8));
+        assert_eq!(
+            chunk_crc(data),
+            raw.rotate_right(15).wrapping_add(0xa282_ead8)
+        );
     }
 
     #[test]

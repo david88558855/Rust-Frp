@@ -132,7 +132,10 @@ mod tests {
         let mut len = [0u8; 8];
         len.copy_from_slice(&frame[1..9]);
         assert_eq!(i64::from_be_bytes(len) as usize, frame.len() - 9);
-        assert_eq!(&frame[9..], br#"{"version":"0.71.0","run_id":"abc","error":""}"#);
+        assert_eq!(
+            &frame[9..],
+            br#"{"version":"0.71.0","run_id":"abc","error":""}"#
+        );
     }
 
     #[test]

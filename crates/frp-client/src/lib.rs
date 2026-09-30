@@ -134,7 +134,9 @@ mod tests {
     #[test]
     fn signed_ping_verifies() {
         match build_ping("tok", true) {
-            Message::Ping(p) => assert!(auth::verify_auth_key("tok", p.timestamp, &p.privilege_key)),
+            Message::Ping(p) => {
+                assert!(auth::verify_auth_key("tok", p.timestamp, &p.privilege_key))
+            }
             other => panic!("unexpected {other:?}"),
         }
     }

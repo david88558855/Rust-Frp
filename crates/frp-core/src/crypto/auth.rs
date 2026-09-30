@@ -48,7 +48,9 @@ mod tests {
         // md5("abc" + "1700000000")
         let key = get_auth_key("abc", 1_700_000_000);
         assert_eq!(key.len(), 32);
-        assert!(key.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert!(key
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
         // deterministic
         assert_eq!(key, get_auth_key("abc", 1_700_000_000));
         assert_ne!(key, get_auth_key("abc", 1_700_000_001));

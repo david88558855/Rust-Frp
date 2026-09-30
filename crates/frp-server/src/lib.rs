@@ -59,7 +59,10 @@ mod tests {
     fn login_resp_frame_matches_expected_shape() {
         let frame = encode_login_resp("run1", None).unwrap();
         assert_eq!(frame[0], b'1');
-        assert_eq!(&frame[9..], br#"{"version":"0.71.0","run_id":"run1","error":""}"#);
+        assert_eq!(
+            &frame[9..],
+            br#"{"version":"0.71.0","run_id":"run1","error":""}"#
+        );
     }
 
     #[test]

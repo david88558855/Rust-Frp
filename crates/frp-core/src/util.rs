@@ -29,8 +29,7 @@ pub fn rand_id(len: usize) -> String {
 
 /// Random identifier whose alphabet matches upstream `util.RandID`.
 pub fn rand_id_frp(len: usize) -> String {
-    const CHARSET: &[u8] =
-        b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let mut rng = rand::thread_rng();
     (0..len)
         .map(|_| {
@@ -193,7 +192,10 @@ mod tests {
             split_host_port("1.2.3.4:7500"),
             Some(("1.2.3.4".to_string(), 7500))
         );
-        assert_eq!(split_host_port("[::1]:7500"), Some(("::1".to_string(), 7500)));
+        assert_eq!(
+            split_host_port("[::1]:7500"),
+            Some(("::1".to_string(), 7500))
+        );
         assert_eq!(split_host_port("nope"), None);
     }
 
