@@ -1,0 +1,172 @@
+name: Release
+
+# Publishing is tag driven. Push `v0.71.0` and the three platform binaries are
+# built, packaged next to the README, checksummed, and attached to a GitHub
+# release. Nothing is published from a branch push.
+#
+# The tarball layout mirrors upstream frp's release archives so that the
+# differential harness and any existing install script can point at either
+# implementation without special casing:
+#
+#   rust-frp_0.71.0_linux_amd64/rust-frp
+#   rust-frp_0.71.0_linux_amd64/README.md
+on:
+  push:
+    tags:
+      - "v*"
+  # A dry run against any ref without publishing, to catch a broken matrix
+  # before a tag is cut.
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Attach the archives to a release (only valid for a tag ref)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # Guards the tag: a release whose tag disagrees with FRP_VERSION would ship
+  # archives named after one version and containing another, which is exactly
+  # the kind of mismatch the differential tests exist to prevent.
+  version:
+    name: tag matches FRP_VERSION
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        run: |
+          # `pub const FRP_VERSION: &str = "0.71.0";`
+          version=$(sed -n 's/.*FRP_VERSION: &str = "\([^"]*\)".*/\1/p' \
+            crates/frp-core/src/lib.rs)
+          if [ -z "$version" ]; then
+            echo "could not read FRP_VERSION from crates/frp-core/src/lib.rs" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "FRP_VERSION is $version"
+      - name: Compare against the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          want="${{ steps.read.outputs.version }}"
+          if [ "$tag" != "$want" ]; then
+            echo "tag v$tag does not match FRP_VERSION $want" >&2
+            exit 1
+          fi
+
+  build:
+    name: package (${{ matrix.target }})
+    needs: version
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: linux_amd64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: windows_amd64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: darwin_arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release --workspace --target ${{ matrix.target }}
+
+      # Upstream ships `rust-frp_<version>_<os>_<arch>/`, so the archive name and
+      # the directory inside it are built from the same two fields.
+      - name: Stage the archive
+        shell: bash
+        run: |
+          version="${{ needs.version.outputs.version }}"
+          dir="rust-frp_${version}_${{ matrix.archive }}"
+          mkdir -p "$dir"
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cp "target/${{ matrix.target }}/release/rust-frp.exe" "$dir/"
+          else
+            cp "target/${{ matrix.target }}/release/rust-frp" "$dir/"
+          fi
+          cp README.md "$dir/"
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            powershell -Command "Compress-Archive -Path '$dir' -DestinationPath '$dir.zip'"
+          else
+            tar czf "$dir.tar.gz" "$dir"
+          fi
+          ls -l "$dir"*
+
+      - name: Upload the staging directory
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.archive }}
+          path: |
+            rust-frp_*.tar.gz
+            rust-frp_*.zip
+          if-no-files-found: error
+
+  publish:
+    name: publish the release
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Only a real tag publishes; a manual dispatch stays a dry run.
+    if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || inputs.publish)
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect the archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+
+      # sha256sum on the Linux runner and `shasum -a 256` elsewhere are the same
+      # algorithm; only the binary differs, and this job is always Linux, so one
+      # spelling is enough.
+      - name: Write the checksums
+        working-directory: dist
+        run: |
+          sha256sum rust-frp_*.tar.gz rust-frp_*.zip > checksums.txt
+          cat checksums.txt
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          {
+            echo "Rust reimplementation of frp ${tag#v}, wire compatible with upstream frp v0.71.0."
+            echo
+            echo "Archives unpack to \`rust-frp_${tag#v}_<os>_<arch>/rust-frp\`."
+            echo
+            echo "### Checksums"
+            echo
+            echo '```'
+            cat dist/checksums.txt
+            echo '```'
+          } > notes.md
+          # `--verify-tag` refuses to invent a release for a tag that does not
+          # exist, which keeps a typo in the workflow from creating one.
+          gh release create "$tag" \
+            --verify-tag \
+            --title "rust-frp ${tag#v}" \
+            --notes-file notes.md \
+            dist/rust-frp_*.tar.gz \
+            dist/rust-frp_*.zip \
+            dist/checksums.txt
