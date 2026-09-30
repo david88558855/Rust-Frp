@@ -9,7 +9,7 @@ payload through the **Go implementation** and compares.
 Concretely, for every vector it runs
 
     frps --version            (must match the pinned version)
-    the Go program built from the reference frp source
+    the generator in gen_go_vectors/, built against the reference frp source
 
 and asserts the frame the Go encoder produces is byte identical to the one the
 vector declares. When the Go toolchain is unavailable the script falls back to
@@ -36,6 +36,7 @@ import sys
 import tempfile
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+GEN_DIR = os.path.join(THIS_DIR, "gen_go_vectors")
 VECTORS = os.path.join(THIS_DIR, "msg_vectors.json")
 
 PASS = "  %-4s %s"
@@ -77,86 +78,51 @@ def upstream_version(upstream_dir):
 
 # ------------------------------------------------------------- go differential
 
-GO_PROGRAM = r'''package main
-
-// Re-encodes each payload below with the same golib/msg/json framing frp uses,
-// and prints one hex frame per line. If this and the Rust encoder agree, the
-// two implementations are wire compatible for that message.
-//
-// Input is one vector per line, as "<typeByte><space><json>". Output is one
-// lowercase hex frame per line, or "ERR" when the reference encoder refuses.
-
-import (
-	"bufio"
-	"encoding/hex"
-	"fmt"
-	"os"
-
-	jsonmsg "github.com/fatedier/golib/msg/json"
-)
-
-func main() {
-	sc := bufio.NewScanner(os.Stdin)
-	sc.Buffer(make([]byte, 1024*1024), 1024*1024)
-	out := bufio.NewWriter(os.Stdout)
-	defer out.Flush()
-
-	for sc.Scan() {
-		line := sc.Text()
-		if len(line) < 2 {
-			fmt.Fprintln(out, "ERR")
-			continue
-		}
-		raw := []byte(line[2:])
-		msg := jsonmsg.NewMsg(line[0], raw)
-		encoded, err := jsonmsg.Encode(msg)
-		if err != nil {
-			fmt.Fprintln(out, "ERR")
-			continue
-		}
-		fmt.Fprintln(out, hex.EncodeToString(encoded))
-	}
-}
-'''
-
 def go_available(go):
     if not go:
         return False
     return shutil.which(go) is not None
 
 
-def run_go_differential(vectors, upstream, go):
-    """Builds the reference encoder against the real frp source tree.
+def run_go_differential(vectors, go):
+    """Builds the reference generator and returns name -> record.
 
-    The upstream release ships binaries only, so the Go module is fetched at the
-    pinned tag. The encoder used is the same `golib/msg/json` package frp links
-    against, which is the point: we are not reimplementing the framing, we are
-    calling frp's own dependency.
+    The producer lives in ``gen_go_vectors/`` and is shared with
+    ``regenerate.py``: it imports frp's own ``pkg/msg`` structs and frames them
+    with ``golib/msg/json``, so the bytes it prints are by construction the ones
+    frp puts on the wire. This module is the consumer, and it checks the
+    committed fixture against those bytes rather than trusting the JSON blob.
     """
-    version = vectors.get("version", "0.71.0")
     work = tempfile.mkdtemp(prefix="frp-vectors-go-")
-    print("   go module cache: %s" % work)
-
-    mod = os.path.join(work, "go.mod")
-    with open(mod, "w", encoding="utf-8") as handle:
-        handle.write("module frpvectors\n\ngo 1.21\n")
-    main_go = os.path.join(work, "main.go")
-    with open(main_go, "w", encoding="utf-8") as handle:
-        handle.write(GO_PROGRAM)
+    print("   go build dir: %s" % work)
+    for name in ("go.mod", "main.go"):
+        shutil.copy(os.path.join(GEN_DIR, name), os.path.join(work, name))
 
     env = dict(os.environ)
-    env["GOFLAGS"] = "-mod=mod"
-    env["GOBIN"] = work
+    env.setdefault("GOFLAGS", "-mod=mod")
+    env.setdefault("GOPROXY", "https://proxy.golang.org,direct")
 
     for cmd in (
-        [go, "get", "github.com/fatedier/golib/msg/json@" + version],
-        [go, "build", "-o", os.path.join(work, "enc"), "."],
+        [go, "mod", "tidy"],
+        [go, "build", "-o", os.path.join(work, "gen"), "."],
     ):
         out = subprocess.run(cmd, cwd=work, capture_output=True, text=True, env=env)
         if out.returncode != 0:
-            print("   %s failed: %s" % (cmd[1], out.stderr.strip()[:400]))
+            print("   %s failed: %s" % (" ".join(cmd[1:]), out.stderr.strip()[:400]))
             return None
-    return os.path.join(work, "enc")
+
+    run = subprocess.run(
+        [os.path.join(work, "gen")], capture_output=True, text=True, timeout=120
+    )
+    if run.returncode != 0:
+        print("   generator failed: %s" % run.stderr.strip()[:400])
+        return None
+
+    records = {}
+    for line in run.stdout.strip().splitlines():
+        rec = json.loads(line)
+        records[rec["name"]] = rec
+    return records
 
 
 def main():
@@ -217,39 +183,46 @@ def main():
 
     # --- layer 3: the real Go encoder, if we can reach it ------------------
     print("")
+    print("== go differential ==")
     if not differential:
-        print("== go differential ==")
         print("  SKIP no upstream frp 0.71.0 supplied; pass --upstream")
+    elif not go_available(args.go):
+        print("  SKIP go toolchain not found; vectors were self check only")
     else:
-        print("== go differential ==")
-        if not go_available(args.go):
-            print("  SKIP go toolchain not found; vectors were self check only")
+        records = run_go_differential(vectors, args.go)
+        if records is None:
+            check("build reference encoder", False, "see above")
         else:
-            encoder = run_go_differential(vectors, args.upstream, args.go)
-            if encoder is None:
-                check("build reference encoder", False, "see above")
-            else:
-                stdin = "\n".join(
-                    "%s %s" % (e["type_byte"], e["body"]) for e in entries
-                )
-                out = subprocess.run(
-                    [encoder], input=stdin, capture_output=True, text=True, timeout=120
-                )
-                lines = out.stdout.strip().splitlines()
-                if len(lines) != len(entries):
+            for entry in entries:
+                name = entry["name"]
+                got = records.get(name)
+                if got is None:
+                    check(name, False, "frp no longer produces this case")
+                    continue
+                if entry["type_byte"] != got["type_byte"]:
                     check(
-                        "reference encoder ran for every vector",
+                        name,
                         False,
-                        "expected %d frames, got %d" % (len(entries), len(lines)),
+                        "type byte: corpus %r, frp %r"
+                        % (entry["type_byte"], got["type_byte"]),
                     )
-                else:
-                    for entry, got in zip(entries, lines):
-                        want = frame_for(entry).hex()
-                        check(
-                            entry["name"],
-                            got == want,
-                            "" if got == want else "go=%s rust-fixture=%s" % (got[:48], want[:48]),
-                        )
+                    continue
+                if entry["body"] != got["body"]:
+                    check(
+                        name,
+                        False,
+                        "body: corpus %s, frp %s" % (entry["body"][:64], got["body"][:64]),
+                    )
+                    continue
+                if entry.get("frame_hex", "") != got["frame"]:
+                    check(
+                        name,
+                        False,
+                        "frame: corpus %s, frp %s"
+                        % (entry.get("frame_hex", "")[:48], got["frame"][:48]),
+                    )
+                    continue
+                check(name, True, "matches frp byte for byte")
 
     print("")
     print("=== summary ===")

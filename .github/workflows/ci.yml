@@ -172,6 +172,14 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23'
+      # A cold `go mod download` of frp and its dependency tree is the slowest
+      # step in this job, so it is cached across runs.
+      - uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-govec-${{ hashFiles('tests/interop/vectors/gen_go_vectors/go.mod') }}
+          restore-keys: |
+            ${{ runner.os }}-govec-
       - name: The Rust encoder reproduces every vector
         run: cargo test -p frp-core --test wire_vectors -- --nocapture
       - name: Fetch the reference implementation

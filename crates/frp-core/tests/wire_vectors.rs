@@ -230,21 +230,15 @@ fn reframing_matches_the_declared_wire_layout() {
                 continue;
             }
         };
-        // The framing itself has no escaping to worry about, so it is compared
-        // strictly: header bytes and body must both match.
+        // The framing has no escaping of its own, so the header is compared
+        // strictly. The body goes through `compare`, which tolerates only the
+        // documented `\uXXXX` divergence: a body that is byte identical passes,
+        // and so does one that differs solely because Go escaped a non ASCII
+        // rune that we emit as UTF-8. Everything else is a real mismatch.
         let expected = frame(type_byte, body);
         match compare(&expected[HEADER_LEN..], &packed[HEADER_LEN..]) {
             Ok(_) => {}
             Err(detail) => failures.push(format!("{}: {detail}", v.name)),
-        }
-        if packed.len() != expected.len() {
-            failures.push(format!(
-                "{}: frame is {} bytes, upstream writes {}",
-                v.name,
-                packed.len(),
-                expected.len()
-            ));
-            continue;
         }
         if packed[..HEADER_LEN] != expected[..HEADER_LEN] {
             failures.push(format!(

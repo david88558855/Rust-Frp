@@ -132,10 +132,10 @@ mod tests {
         let mut len = [0u8; 8];
         len.copy_from_slice(&frame[1..9]);
         assert_eq!(i64::from_be_bytes(len) as usize, frame.len() - 9);
-        assert_eq!(
-            &frame[9..],
-            br#"{"version":"0.71.0","run_id":"abc","error":""}"#
-        );
+        // `error` is empty and upstream tags it omitempty, so it must not
+        // appear. The corpus in `tests/interop/vectors` pins the same rule;
+        // this assertion is the cheap local guard.
+        assert_eq!(&frame[9..], br#"{"version":"0.71.0","run_id":"abc"}"#);
     }
 
     #[test]

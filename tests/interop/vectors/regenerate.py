@@ -45,9 +45,15 @@ def run_go(go):
 
     env = dict(os.environ)
     env.setdefault("GOFLAGS", "-mod=mod")
-    env["GOPROXY"] = env.get("GOPROXY", "https://proxy.golang.org,direct")
+    env.setdefault("GOPROXY", "https://proxy.golang.org,direct")
+    # Keep the module cache and build cache in the default locations so a CI
+    # cache action can persist them between runs; a cold frp download is the
+    # slow part of this job.
+    env.pop("GOCACHE", None)
+    env.pop("GOMODCACHE", None)
 
     for cmd in (
+        [go, "mod", "download", "all"],
         [go, "mod", "tidy"],
         [go, "build", "-o", os.path.join(work, "gen"), "."],
     ):
