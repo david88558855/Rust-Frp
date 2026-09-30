@@ -7,6 +7,15 @@
 //! response are byte-for-byte the same — and it keeps the connection lifetime
 //! obvious, which matters because the response body is *streamed*: the
 //! connection has to stay alive until the body is drained.
+//!
+//! The one place the two differ in a way that shows up on the wire is the
+//! request line, and it is easy to get wrong. Go's `Transport` writes
+//! `URL.RequestURI()` — the path and query — and uses `URL.Scheme`/`URL.Host`
+//! only to pick a socket; a request whose URL is `http://backend/probe` still
+//! goes out as `GET /probe HTTP/1.1`. Hyper writes the URI it is given, so the
+//! same request would go out as `GET http://backend/probe HTTP/1.1`, which is
+//! the absolute form a *proxy* expects and an origin server will misread.
+//! [`forward`] therefore reduces the target back to origin-form before sending.
 
 use std::sync::Arc;
 
@@ -135,6 +144,7 @@ pub async fn forward(
         }
     });
 
+    req = origin_form(req);
     let mut response = sender
         .send_request(req)
         .await
@@ -194,6 +204,30 @@ pub async fn forward(
     Ok(response.map(|body| body.boxed()))
 }
 
+/// Reduces a request target to origin-form, the way `URL.RequestURI()` does.
+///
+/// Callers build an absolute URI because that is what says which backend to
+/// dial, and `Target` carries that separately, so nothing is lost by sending
+/// only the path. An empty path becomes `/`, again matching `RequestURI`.
+///
+/// `CONNECT` is left alone: its target is an authority, not a path, and no
+/// caller here routes it through this function — `http_proxy` splices the
+/// tunnel itself.
+fn origin_form<B>(mut req: Request<B>) -> Request<B> {
+    if req.method() == hyper::Method::CONNECT {
+        return req;
+    }
+    let target = req
+        .uri()
+        .path_and_query()
+        .map(|value| value.as_str().to_string())
+        .unwrap_or_else(|| "/".to_string());
+    if let Ok(uri) = target.parse() {
+        *req.uri_mut() = uri;
+    }
+    req
+}
+
 /// Dials the backend, wrapping the socket in TLS when the plugin asks for it.
 async fn dial(target: &Target) -> Result<PluginConn> {
     let stream = timeout(BACKEND_DIAL_TIMEOUT, TcpStream::connect(&target.addr))
@@ -218,4 +252,53 @@ async fn dial(target: &Target) -> Result<PluginConn> {
         .await
         .context("TLS handshake with the local service")?;
     Ok(Box::new(tls))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use http_body_util::Full;
+
+    fn request(uri: &str, method: &str) -> Request<Full<Bytes>> {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .body(Full::new(Bytes::new()))
+            .unwrap()
+    }
+
+    fn target_of(uri: &str, method: &str) -> String {
+        origin_form(request(uri, method)).uri().to_string()
+    }
+
+    /// The bug this exists for: an absolute URI reached the backend verbatim,
+    /// so `http2http` sent `GET http://backend/probe` where upstream sends
+    /// `GET /probe`. The backend sees an absolute-form request, which is a
+    /// proxy's shape, and every routing decision it makes on the path is wrong.
+    #[test]
+    fn an_absolute_target_is_reduced_to_its_path() {
+        assert_eq!(target_of("http://127.0.0.1:8080/probe", "GET"), "/probe");
+        assert_eq!(target_of("https://backend:8443/probe", "GET"), "/probe");
+        assert_eq!(
+            target_of("http://127.0.0.1:8080/probe?q=1", "GET"),
+            "/probe?q=1"
+        );
+        // The path was already relative: nothing to strip, and stripping must
+        // not eat it.
+        assert_eq!(target_of("/probe", "GET"), "/probe");
+        assert_eq!(target_of("/a/b?c=d", "POST"), "/a/b?c=d");
+        // `URL.RequestURI` answers `/` for an empty path, and so does this.
+        assert_eq!(target_of("/", "GET"), "/");
+    }
+
+    #[test]
+    fn connect_keeps_its_authority_target() {
+        // A `CONNECT` target is an authority, not a path; rewriting it to
+        // origin-form would strip the host the tunnel needs. The address is the
+        // one the `http_proxy` scenario actually connects to, because that is
+        // the shape whose parsing is known to yield an authority.
+        let req = request("127.0.0.1:38000", "CONNECT");
+        assert!(req.uri().authority().is_some());
+        assert_eq!(origin_form(req).uri().to_string(), "127.0.0.1:38000");
+    }
 }

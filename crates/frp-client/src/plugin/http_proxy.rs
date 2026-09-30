@@ -161,8 +161,10 @@ impl HttpProxyPlugin {
         ] {
             parts.headers.remove(name);
         }
-        // Hyper writes origin-form for the request line, so the absolute URI is
-        // fine; only the scheme decides whether the origin is reached over TLS.
+        // The absolute URI is kept because it says which origin to reach; it is
+        // not what goes on the wire. `forward` reduces the target to
+        // origin-form first, which is what Go's `Transport` does and what an
+        // origin server expects.
         if parts.headers.get(HOST).is_none() {
             if let Ok(value) = HeaderValue::from_str(&authority) {
                 parts.headers.insert(HOST, value);

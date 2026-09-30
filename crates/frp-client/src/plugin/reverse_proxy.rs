@@ -242,6 +242,10 @@ impl BridgePlugin {
         // us over HTTP/2 on a TLS listener.
         parts.version = Version::HTTP_11;
 
+        // The absolute URL, in Go's sense: `URL.Scheme` and `URL.Host` say
+        // where to dial, while the wire carries only the path. `forward` does
+        // that reduction, so building the full URL here is what makes the two
+        // halves line up with upstream.
         let uri = format!("{}://{}{}", self.kind.backend_scheme(), self.local_addr, path_and_query);
         match uri.parse() {
             Ok(uri) => parts.uri = uri,

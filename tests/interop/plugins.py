@@ -89,10 +89,13 @@ def indent(text, prefix="       "):
 
 
 def find_binary(directory, name):
+    # Absolute on purpose: the children are started with the scratch directory
+    # as their cwd, so a relative path handed to them would resolve there and
+    # not against the caller's.
     for candidate in (name, name + ".exe"):
         path = os.path.join(directory, candidate)
         if os.path.exists(path):
-            return path
+            return os.path.abspath(path)
     return None
 
 
@@ -712,18 +715,21 @@ def probe_http_proxy(ctx, port):
     target = "127.0.0.1:%d" % ctx["http_echo"]
     status, _, body = proxy_request(port, target, "/absolute-form")
     echo = json.loads(body)
+    # The request line is the point here: the proxy is handed an absolute URI
+    # and has to put an origin-form target on the wire, so the backend sees the
+    # path and nothing else.
     obs.check(
         "http_proxy / forwards an absolute-form request",
         status == 200 and echo["path"] == "/absolute-form",
         "status=%s path=%s" % (status, echo.get("path")),
     )
-    status, echo = proxy_connect(port, target, "/through-connect")
+    tunnel_status, tunnel_echo = proxy_connect(port, target, "/through-connect")
     obs.check(
         "http_proxy / tunnels CONNECT",
-        status == 200 and echo.get("path") == "/through-connect",
-        "status=%s path=%s" % (status, echo.get("path")),
+        tunnel_status == 200 and tunnel_echo.get("path") == "/through-connect",
+        "status=%s path=%s" % (tunnel_status, tunnel_echo.get("path")),
     )
-    obs.fact(status, echo.get("path"))
+    obs.fact(status, echo.get("path"), tunnel_status, tunnel_echo.get("path"))
     return obs
 
 

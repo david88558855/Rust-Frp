@@ -159,8 +159,12 @@ cargo clippy --workspace --all-targets
 cargo build --release
 python3 tests/e2e/e2e.py        # defaults to target/release/rust-frp
 
-# Wire compatibility against an upstream frp release of the same version.
+# Differential checks against an upstream frp release of the same version.
 python3 tests/interop/interop.py \
+    --rust target/release/rust-frp \
+    --upstream /path/to/frp_0.71.0_linux_amd64 \
+    --with-visitors
+python3 tests/interop/plugins.py \
     --rust target/release/rust-frp \
     --upstream /path/to/frp_0.71.0_linux_amd64
 ```
@@ -171,15 +175,23 @@ peers — a wrong assumption shared by a test and its implementation passes both
 — so `tests/e2e/e2e.py` runs the built binary against itself and checks real
 traffic through the tunnel: `tcp`, `udp` and an `http` virtual host over a yamux
 session, the same with `tcpMux` off, TLS on the control port, and an `stcp`
-visitor tunnelling to another client's proxy. It is part of CI.
+visitor tunnelling to another client's proxy.
 
-`tests/interop/interop.py` goes further and runs the Rust peer against an
-upstream frp release in all four combinations (Rust↔upstream in both
-directions, plus Rust↔Rust and upstream↔upstream as controls). It needs a
-release tarball from the frp project, so it is not part of CI, but it is the
-check that matters most for compatibility: a detail both Rust peers get wrong
-the same way is invisible to the e2e suite. The AES key salt was exactly that
-kind of bug.
+Neither of those can catch a mistake *both* peers make, which is why there is a
+third layer. `tests/interop/interop.py` runs the wire protocol against a real
+frp release in all four combinations (Rust↔upstream in both directions, plus
+Rust↔Rust and upstream↔upstream as controls). `tests/interop/plugins.py` does
+the same for the client plugins: eleven scenarios, each registered once per
+implementation, each probed identically, with every observable result compared
+against a live `frps`+`frpc` baseline rather than against a value written down
+here.
+
+That last part is not decoration. The misdirected-request check the
+TLS-terminating plugins perform was missing here; without it, a request whose
+SNI did not match its Host was served instead of refused, and nothing in the
+unit or e2e suites noticed. Earlier, the AES key salt was wrong for a whole
+milestone — 170 unit tests and 13 end-to-end checks passed, because both sides
+were wrong in the same way. Both are in CI now.
 
 ## Wire compatibility
 
@@ -200,15 +212,35 @@ built from this repository and upstream v0.71.0.
 the other, in both directions and against both servers: ok (50/50 checks in
 total).
 
+Client plugins, from `tests/interop/plugins.py`, same four pairs and 27 checks
+each: ok. The scenarios are `http2http`, `http2https`, `https2http`,
+`https2https`, `tls2raw`, `static_file` (plain and with credentials), `socks5`,
+`http_proxy` (plain and with credentials), and the `https` vhost shape of
+`https2http`. What they pin down beyond "it works":
+
+- `http2http` drops the inbound `X-Forwarded-*`, because `httputil.ReverseProxy`
+  removes them before `Rewrite` runs and this rewrite does not put them back;
+  `http2https` copies them back verbatim. That asymmetry is upstream's, not an
+  oversight.
+- `https2http` and `https2https` append the client address to `X-Forwarded-For`
+  and set `X-Forwarded-Host`/`-Proto`, taking the address from the `src_addr`
+  the server reported in `StartWorkConn`.
+- both refuse a request whose SNI does not match its Host with `421`.
+- `static_file` answers `405` for `HEAD`, not `200`: the route is registered
+  with `Methods("GET")`.
+- `http_proxy` answers `407` for an unauthenticated request and accepts both
+  absolute-form and `CONNECT`.
+
 What that covers: the frame format, the token signature, the AES-128-CFB
 control stream, yamux multiplexing in both roles, the `0x17` TLS negotiation in
 both directions, the work-connection handshake, the work-connection cipher and
 the snappy framed stream, the visitor signature and the secret-key-based
-visitor payload encryption, and `http` virtual host routing.
+visitor payload encryption, `http` virtual host routing, and the plugin
+behaviour above.
 
 Not covered yet: `xtcp` and `sudp` visitors, `tcpmux`, proxy groups, bandwidth
-limiting, client side plugins, and the `websocket` / `wss` / `kcp` / `quic`
-transports, none of which are implemented.
+limiting, and the `websocket` / `wss` / `kcp` / `quic` transports, none of which
+are implemented.
 
 ## Roadmap
 
@@ -247,6 +279,9 @@ transports, none of which are implemented.
   - [x] proxy plugins: `unix_domain_socket`, `static_file`, `socks5`,
         `http_proxy`, `http2http`, `http2https`, `https2http`, `https2https`,
         `tls2raw`;
+  - [x] plugin behaviour verified against the official release with
+        `tests/interop/plugins.py`, which runs eleven scenarios against four
+        pairs of binaries and compares each to a live baseline;
   - [ ] `xtcp` and `sudp` visitors, the `virtual_net` plugin, client admin UI
         and store, client side bandwidth limiting, the proxy protocol header,
         and the `websocket` / `wss` / `kcp` / `quic` transports.
@@ -291,10 +326,16 @@ finite-range support covers a single range (a multi-range request gets the whole
 entity); and `virtual_net` is not implemented, so a configuration naming it is
 rejected at load with the plugin's name.
 
-CI runs the Rust peers against each other, which catches regressions where both
-sides are ours. Compatibility with upstream is verified separately against a
-real frp release — see **Wire compatibility** below — because a detail both Rust
-peers get wrong the same way is invisible to any self contained test.
+`https2http` and `https2https` terminate TLS, so they also reproduce upstream's
+misdirected-request guard: a request whose SNI was sent but does not match its
+Host is refused with `421` rather than served. The comparison runs through a
+port of `pkg/util/http.CanonicalHost`, down to the empty result an unparsable
+host canonicalises to — that empty string is what disables the check, so the
+order of the tests matters.
+
+CI runs the Rust peers against each other, and against a real frp release, which
+is the only way to catch a regression where both sides are ours. See
+**Testing** above.
 
 ## License and attribution
 

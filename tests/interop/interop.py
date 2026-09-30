@@ -300,10 +300,13 @@ def http_roundtrip(port, host):
 
 
 def find_binary(directory, name):
+    # Absolute on purpose: the children are started with the scratch directory
+    # as their cwd, so a relative path handed to them would resolve there and
+    # not against the caller's.
     for candidate in (name, name + ".exe"):
         path = os.path.join(directory, candidate)
         if os.path.exists(path):
-            return path
+            return os.path.abspath(path)
     return None
 
 
