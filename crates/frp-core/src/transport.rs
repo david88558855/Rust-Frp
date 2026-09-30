@@ -105,7 +105,7 @@ impl<S> ServerStream<S> {
     }
 }
 
-impl<S: AsyncRead + Unpin> AsyncRead for ServerStream<S> {
+impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for ServerStream<S> {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -118,7 +118,7 @@ impl<S: AsyncRead + Unpin> AsyncRead for ServerStream<S> {
     }
 }
 
-impl<S: AsyncWrite + Unpin> AsyncWrite for ServerStream<S> {
+impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for ServerStream<S> {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,

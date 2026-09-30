@@ -1,7 +1,8 @@
 //! `rust-frp` - unified command line entrypoint hosting both `frps` and `frpc`.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use frp_core::config::server::ServerConfig;
 use frp_core::crypto::auth;
 use frp_core::msg::{Login, Message, ReqWorkConn};
 use frp_core::{codec, FRP_VERSION};
@@ -11,8 +12,7 @@ use frp_core::{codec, FRP_VERSION};
     name = "rust-frp",
     version,
     about = "Rust reimplementation of frp (fast reverse proxy), wire compatible with frp v0.71",
-    long_about = None,
-    disable_help_subcommand = false
+    long_about = None
 )]
 struct Cli {
     #[command(subcommand)]
@@ -53,18 +53,11 @@ fn main() -> Result<()> {
         )
         .init();
 
-    let cli = Cli::parse();
-    match cli.command {
+    match Cli::parse().command {
         Command::Info => print_info(),
         Command::Selftest => run_selftest()?,
-        Command::Frps { config, verify } => {
-            println!("rust-frp frps: config={config} verify={verify}");
-            anyhow::bail!("frps runtime is not part of this milestone yet");
-        }
-        Command::Frpc { config, verify } => {
-            println!("rust-frp frpc: config={config} verify={verify}");
-            anyhow::bail!("frpc runtime is not part of this milestone yet");
-        }
+        Command::Frps { config, verify } => run_frps(&config, verify)?,
+        Command::Frpc { config, verify } => run_frpc(&config, verify)?,
     }
     Ok(())
 }
@@ -76,9 +69,53 @@ fn print_info() {
         codec::MAX_MSG_LENGTH
     );
     println!("auth           : md5(token || timestamp)");
-    println!("encryption     : aes-128-cfb, pbkdf2-hmac-sha1(token, \"crypto\", 64, 16), 16 byte iv prefix");
+    println!("control crypto : aes-128-cfb, pbkdf2-hmac-sha1(token, \"crypto\", 64, 16)");
+    println!("work crypto    : same cipher, enabled per proxy by transport.useEncryption");
     println!("compression    : snappy framed stream (crc32c masked)");
+    println!("tls            : custom first byte 0x17, real ClientHello 0x16");
+    println!("server proxies : tcp, udp, stcp, sudp");
     println!("message types  : login/login_resp/new_proxy/new_proxy_resp/close_proxy/new_work_conn/req_work_conn/start_work_conn/new_visitor_conn/new_visitor_conn_resp/ping/pong/udp_packet/nat_hole_*");
+}
+
+fn run_frps(config: &str, verify: bool) -> Result<()> {
+    let cfg: ServerConfig =
+        frp_core::config::load_config(config).with_context(|| format!("load {config}"))?;
+
+    if verify {
+        let mut checked = cfg.clone();
+        checked.complete();
+        println!(
+            "configuration is valid: bind {}:{} ({} allowPorts entries)",
+            checked.bind_addr,
+            checked.bind_port,
+            checked.allow_ports.len()
+        );
+        return Ok(());
+    }
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("build tokio runtime")?;
+    runtime.block_on(async move {
+        let service = frp_server::Service::new(cfg)?;
+        let shutdown = service.shutdown();
+        tokio::spawn(async move {
+            if tokio::signal::ctrl_c().await.is_ok() {
+                println!("shutting down");
+                shutdown.cancel();
+            }
+        });
+        service.run().await
+    })
+}
+
+fn run_frpc(config: &str, verify: bool) -> Result<()> {
+    if verify {
+        println!("frpc configuration verification arrives with the client milestone: {config}");
+        return Ok(());
+    }
+    anyhow::bail!("frpc is not implemented yet; see the roadmap in README.md");
 }
 
 fn run_selftest() -> Result<()> {
@@ -107,9 +144,8 @@ fn run_selftest() -> Result<()> {
     println!("[ok] req_work_conn encodes as {{}}");
 
     // 4. crypto round trip (AES-128-CFB + snappy framing)
-    let token = b"token";
-    let key = stream_crypto_roundtrip(token);
-    println!("[ok] encrypted+compressed stream round trip ({key} bytes)");
+    let bytes = stream_crypto_roundtrip(b"token");
+    println!("[ok] encrypted+compressed stream round trip ({bytes} bytes)");
 
     println!("rust-frp selftest: all checks passed");
     Ok(())

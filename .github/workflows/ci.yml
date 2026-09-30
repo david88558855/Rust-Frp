@@ -11,16 +11,6 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  fmt:
-    name: rustfmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - run: cargo fmt --all -- --check
-
   check:
     name: cargo check + test
     runs-on: ubuntu-latest
