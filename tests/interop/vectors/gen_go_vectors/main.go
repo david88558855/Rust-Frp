@@ -164,6 +164,12 @@ var specs = []spec{
 	{"new_visitor_conn_resp/ok", func() any {
 		return &msg.NewVisitorConnResp{ProxyName: "secret"}
 	}, "Accepted."},
+	{"new_visitor_conn_resp/error", func() any {
+		return &msg.NewVisitorConnResp{
+			ProxyName: "secret",
+			Error:     "visitor connection request rejected: signature doesn't match",
+		}
+	}, "A bad sign key is rejected here and must not be silently accepted."},
 
 	{"ping", func() any {
 		return &msg.Ping{
