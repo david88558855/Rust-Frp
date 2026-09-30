@@ -10,7 +10,7 @@ use frp_core::msg::{Message, UdpAddrJson, UdpPacket};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::context::ServerContext;
 use crate::control::Control;

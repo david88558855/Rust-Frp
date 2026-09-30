@@ -11,7 +11,7 @@ use anyhow::{Context as _, Result};
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
 use http_body_util::Full;
-use hyper::body::{Bytes, Incoming};
+use hyper::body::Bytes;
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;

@@ -37,7 +37,7 @@ impl Service {
         let token = cfg.resolved_token()?;
         let cfg = Arc::new(cfg);
 
-        let tls = match build_server_tls_config(&cfg.transport.tls.cert()) {
+        let tls = match build_server_tls_config(&cfg.transport.tls) {
             Ok(tls) => Some(tls),
             Err(e) => {
                 warn!(error = %e, "TLS could not be initialised, only plaintext clients will be accepted");

@@ -1,12 +1,10 @@
 //! Proxy runtime: specification, lifecycle trait and work-connection plumbing.
 
-pub mod http;
 pub mod stcp;
 pub mod tcp;
 pub mod udp;
 
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use frp_core::codec::write_msg;

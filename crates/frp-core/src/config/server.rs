@@ -3,8 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::common::{
-    AuthMethod, AuthScope, HttpPluginOptions, LogConfig, QUICOptions, TlsConfig, ValueSource,
-    WebServerConfig,
+    AuthMethod, AuthScope, HttpPluginOptions, LogConfig, QUICOptions, ValueSource, WebServerConfig,
 };
 use super::proxy::PortsRange;
 
@@ -218,17 +217,6 @@ pub struct TlsServerConfig {
     pub cert_file: String,
     pub key_file: String,
     pub trusted_ca_file: String,
-}
-
-impl TlsServerConfig {
-    pub fn cert(&self) -> TlsConfig {
-        TlsConfig {
-            cert_file: self.cert_file.clone(),
-            key_file: self.key_file.clone(),
-            trusted_ca_file: self.trusted_ca_file.clone(),
-            server_name: String::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

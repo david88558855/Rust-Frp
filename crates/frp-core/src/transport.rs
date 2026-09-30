@@ -16,7 +16,7 @@
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{ready, Context, Poll};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use anyhow::{anyhow, Context as _, Result};
