@@ -20,7 +20,10 @@
 //! * the HTTPS virtual host port is routed by the SNI of a peeked ClientHello
 //!   and the still-encrypted stream is forwarded verbatim (see [`tls_sni`]);
 //! * HTTP/HTTPS proxies are routed with the same domain / location / http-user
-//!   precedence as upstream (see [`vhost`]).
+//!   precedence as upstream (see [`vhost`]);
+//! * `transport.tcpMux` is on by default on both sides, so the control
+//!   connection is wrapped in a yamux session where frpc is the client and frps
+//!   the server (see [`yamux`]).
 
 #![forbid(unsafe_code)]
 
@@ -33,6 +36,7 @@ pub mod tls_sni;
 pub mod transport;
 pub mod util;
 pub mod vhost;
+pub mod yamux;
 
 pub use codec::{read_msg, unpack, write_msg, CodecError, HEADER_LEN, MAX_MSG_LENGTH};
 pub use msg::{Message, MsgType};

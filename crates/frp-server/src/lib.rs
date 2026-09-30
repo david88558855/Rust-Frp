@@ -5,6 +5,8 @@
 //! Implemented in this milestone:
 //!
 //! * control listener with frp's custom TLS first byte handling and token auth;
+//! * `transport.tcpMux` stream multiplexing: the accepted socket carries a
+//!   yamux session and every logical connection arrives as a stream of it;
 //! * control sessions: run-id replacement, heartbeat supervision, work
 //!   connection pool, `NewProxy` / `CloseProxy` handling;
 //! * `tcp`, `udp`, `stcp`, `sudp`, `http` and `https` proxies with port

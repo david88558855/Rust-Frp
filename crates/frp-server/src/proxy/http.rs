@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use anyhow::{anyhow, Result};
 use frp_core::crypto::stream::WorkConnStream;
-use frp_core::transport::ServerStream;
+use frp_core::transport::ServerConn;
 use frp_core::util::canonical_addr;
 use frp_core::vhost::normalize_location;
 use http_body_util::BodyExt;
@@ -247,7 +247,7 @@ impl HttpProxy {
     async fn open_work_conn(
         &self,
         peer: Option<&SocketAddr>,
-    ) -> Result<WorkConnStream<ServerStream<TcpStream>>> {
+    ) -> Result<WorkConnStream<ServerConn>> {
         let control = self
             .control
             .upgrade()
@@ -301,7 +301,7 @@ impl HttpProxy {
 
     async fn forward_inner(
         &self,
-        work: WorkConnStream<ServerStream<TcpStream>>,
+        work: WorkConnStream<ServerConn>,
         req: Request<Incoming>,
     ) -> Result<Response<RespBody>> {
         let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(work))

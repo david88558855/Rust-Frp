@@ -26,9 +26,8 @@ use frp_core::crypto::{auth, WorkConnStream};
 use frp_core::msg::{
     CloseProxy, Login, Message, NewProxy, NewProxyResp, Ping, Pong, ReqWorkConn,
 };
-use frp_core::transport::ServerStream;
+use frp_core::transport::ServerConn;
 use frp_core::util;
-use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
@@ -39,7 +38,7 @@ use crate::proxy::{stcp, tcp, udp, ProxySpec, ServerProxy, WorkConn, WorkConnReq
 use crate::util::{response_error, unix_now};
 
 /// The control connection once it has been switched to the encrypted stream.
-pub type ControlStream = EncryptedStream<ServerStream<TcpStream>>;
+pub type ControlStream = EncryptedStream<ServerConn>;
 
 /// Number of extra work connections kept idle beyond `pool_count`.
 const POOL_EXTRA: i32 = 1;
@@ -508,7 +507,7 @@ async fn work_conn_dispatcher(
 }
 
 /// Builds a `ControlStream` wrapper for a control connection.
-pub fn wrap_control_stream(stream: ServerStream<TcpStream>, token: &[u8]) -> ControlStream {
+pub fn wrap_control_stream(stream: ServerConn, token: &[u8]) -> ControlStream {
     EncryptedStream::new(stream, token)
 }
 
@@ -519,7 +518,7 @@ pub fn wrap_work_conn(
     token: &[u8],
     use_encryption: bool,
     use_compression: bool,
-) -> WorkConnStream<ServerStream<TcpStream>> {
+) -> WorkConnStream<ServerConn> {
     WorkConnStream::new(
         work_conn.into_stream(),
         token,

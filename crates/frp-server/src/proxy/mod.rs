@@ -10,7 +10,7 @@ use std::net::SocketAddr;
 use anyhow::{anyhow, Result};
 use frp_core::codec::write_msg;
 use frp_core::msg::{Message, NewProxy, StartWorkConn};
-use frp_core::transport::{ServerStream, FRP_TLS_HEAD_BYTE};
+use frp_core::transport::{ServerConn, FRP_TLS_HEAD_BYTE};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::oneshot;
@@ -19,18 +19,9 @@ use crate::util::unix_now;
 
 /// A work connection supplied by the client and waiting to be used.
 pub struct WorkConn {
-    pub stream: ServerStream<TcpStream>,
+    pub stream: ServerConn,
     pub remote_addr: SocketAddr,
     pub local_addr: SocketAddr,
-}
-
-/// Indicates the wire encoding actually in use, for logging.
-pub fn stream_kind(stream: &ServerStream<TcpStream>) -> &'static str {
-    if stream.is_tls() {
-        "tls"
-    } else {
-        "tcp"
-    }
 }
 
 /// Marker so the obfuscated-TLS byte is never mistaken for a message type.
@@ -48,7 +39,7 @@ impl WorkConn {
         Ok(())
     }
 
-    pub fn into_stream(self) -> ServerStream<TcpStream> {
+    pub fn into_stream(self) -> ServerConn {
         self.stream
     }
 }

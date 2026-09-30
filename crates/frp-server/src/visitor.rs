@@ -11,13 +11,13 @@ use std::sync::Mutex;
 
 use anyhow::{anyhow, Result};
 use frp_core::crypto::auth::constant_time_eq;
-use frp_core::transport::ServerStream;
+use frp_core::transport::{ServerConn, ServerStream};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
 /// An admitted visitor connection.
 pub struct VisitorConn {
-    pub stream: ServerStream<TcpStream>,
+    pub stream: ServerConn,
     pub remote_addr: SocketAddr,
     pub user: String,
     /// Wrap the payload with the proxy secret key when set.
@@ -157,7 +157,9 @@ mod tests {
         let client = TcpStream::connect(addr).await.unwrap();
         let (_server, _) = listener.accept().await.unwrap();
         VisitorConn {
-            stream: ServerStream::Plain(PrefixedStream::new(client, Vec::new())),
+            stream: ServerConn::Direct(Box::new(ServerStream::Plain(
+                PrefixedStream::new(client, Vec::new()),
+            ))),
             remote_addr: addr,
             user: user.to_string(),
             use_encryption: false,

@@ -8,8 +8,9 @@ use frp_core::config::server::ServerConfig;
 use frp_core::crypto::auth;
 use frp_core::crypto::stream::EncryptedStream;
 use frp_core::msg::{Login, LoginResp, Message, NewVisitorConnResp};
-use frp_core::transport::{accept_server_stream, build_server_tls_config, ServerStream};
+use frp_core::transport::{accept_server_stream, build_server_tls_config, ServerConn};
 use frp_core::vhost::VhostRouter;
+use frp_core::yamux;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -128,6 +129,7 @@ impl Service {
             addr = %bind,
             tls = self.tls.is_some(),
             tls_force = cfg.transport.tls.force,
+            tcp_mux = cfg.transport.tcp_mux_enabled(),
             "rust-frp server started"
         );
 
@@ -165,6 +167,12 @@ impl Service {
 }
 
 /// Classifies and dispatches a freshly accepted control-port connection.
+///
+/// With `transport.tcpMux` on — the upstream default, on both peers — the
+/// accepted socket carries a yamux session rather than a single connection:
+/// the client opens one stream for the control connection and one per work
+/// connection. Upstream installs a yamux server session here and loops on
+/// `AcceptStream`, so this mirrors it.
 async fn handle_connection(
     ctx: Arc<ServerContext>,
     tls: Option<Arc<rustls::ServerConfig>>,
@@ -177,7 +185,53 @@ async fn handle_connection(
         .unwrap_or_else(|_| "unknown".to_string());
     let local_addr = sock.local_addr().ok();
 
-    let mut stream = accept_server_stream(sock, tls, force_tls).await?;
+    let stream = accept_server_stream(sock, tls, force_tls).await?;
+
+    if !ctx.cfg.transport.tcp_mux_enabled() {
+        return handle_stream(
+            ctx,
+            ServerConn::Direct(Box::new(stream)),
+            remote_addr,
+            local_addr,
+        )
+        .await;
+    }
+
+    let keepalive = ctx.cfg.transport.tcp_mux_keepalive_interval.max(1) as u64;
+    let session = yamux::Session::new(
+        stream,
+        yamux::Mode::Server,
+        yamux::Config::for_frp(std::time::Duration::from_secs(keepalive)),
+    );
+
+    let mut session = session;
+    while let Some(stream) = session.accept().await {
+        let ctx = ctx.clone();
+        let remote_addr = remote_addr.clone();
+        tokio::spawn(async move {
+            if let Err(e) = handle_stream(
+                ctx,
+                ServerConn::Mux(stream),
+                remote_addr.clone(),
+                local_addr,
+            )
+            .await
+            {
+                debug!(client = %remote_addr, error = %e, "mux stream closed");
+            }
+        });
+    }
+    Ok(())
+}
+
+/// Handles one logical connection, whether it arrived directly or as a stream
+/// of a yamux session.
+async fn handle_stream(
+    ctx: Arc<ServerContext>,
+    mut stream: ServerConn,
+    remote_addr: String,
+    local_addr: Option<std::net::SocketAddr>,
+) -> Result<()> {
     let first = read_msg(&mut stream).await?;
 
     match first {
@@ -207,7 +261,7 @@ fn parse_addr(addr: &str) -> Option<std::net::SocketAddr> {
 
 async fn handle_login(
     ctx: Arc<ServerContext>,
-    mut stream: ServerStream<TcpStream>,
+    mut stream: ServerConn,
     login: Login,
     remote_addr: String,
 ) -> Result<()> {
@@ -299,7 +353,7 @@ async fn handle_login(
 
 async fn handle_new_work_conn(
     ctx: Arc<ServerContext>,
-    mut stream: ServerStream<TcpStream>,
+    mut stream: ServerConn,
     msg: frp_core::msg::NewWorkConn,
     remote_addr: std::net::SocketAddr,
     local_addr: std::net::SocketAddr,
@@ -347,7 +401,7 @@ async fn handle_new_work_conn(
 
 async fn handle_new_visitor_conn(
     ctx: Arc<ServerContext>,
-    mut stream: ServerStream<TcpStream>,
+    mut stream: ServerConn,
     msg: frp_core::msg::NewVisitorConn,
     remote_addr: std::net::SocketAddr,
 ) -> Result<()> {
