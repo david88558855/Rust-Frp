@@ -149,25 +149,28 @@ mod tests {
     use super::*;
     use frp_core::transport::PrefixedStream;
 
-    fn dummy_conn(user: &str) -> VisitorConn {
-        // An in-memory duplex avoids registering a real socket with the tokio
-        // reactor, which these synchronous tests do not run.
-        let (client, _server) = tokio::io::duplex(1024);
+    /// Builds a `VisitorConn` around a real loopback socket pair, inside the
+    /// test runtime so the stream can register with the reactor.
+    async fn dummy_conn(user: &str) -> VisitorConn {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = TcpStream::connect(addr).await.unwrap();
+        let (_server, _) = listener.accept().await.unwrap();
         VisitorConn {
             stream: ServerStream::Plain(PrefixedStream::new(client, Vec::new())),
-            remote_addr: "127.0.0.1:12345".parse().unwrap(),
+            remote_addr: addr,
             user: user.to_string(),
             use_encryption: false,
             use_compression: false,
         }
     }
 
-    #[test]
-    fn register_then_admit() {
+    #[tokio::test]
+    async fn register_then_admit() {
         let reg = VisitorRegistry::new();
         let mut rx = reg.register("p1", "sk", vec![], "owner").unwrap();
         assert!(reg.exists("p1"));
-        assert!(reg.admit("p1", dummy_conn("owner"), "sk").is_ok());
+        assert!(reg.admit("p1", dummy_conn("owner").await, "sk").is_ok());
         assert!(rx.try_recv().is_ok());
     }
 
@@ -180,36 +183,51 @@ mod tests {
         assert!(!reg.exists("p1"));
     }
 
-    #[test]
-    fn wrong_secret_key_is_rejected() {
+    #[tokio::test]
+    async fn wrong_secret_key_is_rejected() {
         let reg = VisitorRegistry::new();
         let _rx = reg.register("p1", "sk", vec![], "owner").unwrap();
-        let err = reg.admit("p1", dummy_conn("owner"), "nope").unwrap_err();
+        let err = reg
+            .admit("p1", dummy_conn("owner").await, "nope")
+            .unwrap_err();
         assert!(err.to_string().contains("sign key mismatch"));
     }
 
-    #[test]
-    fn allow_users_defaults_to_the_owner() {
+    #[tokio::test]
+    async fn allow_users_defaults_to_the_owner() {
         let reg = VisitorRegistry::new();
         let _rx = reg.register("p1", "sk", vec![], "owner").unwrap();
-        let err = reg.admit("p1", dummy_conn("intruder"), "sk").unwrap_err();
+        let err = reg
+            .admit("p1", dummy_conn("intruder").await, "sk")
+            .unwrap_err();
         assert!(err.to_string().contains("not allowed"));
     }
 
-    #[test]
-    fn explicit_allow_users_is_honoured() {
+    #[tokio::test]
+    async fn explicit_allow_users_is_honoured() {
         let reg = VisitorRegistry::new();
         let _rx = reg
             .register("p1", "sk", vec!["alice".into()], "owner")
             .unwrap();
-        assert!(reg.admit("p1", dummy_conn("alice"), "sk").is_ok());
-        assert!(reg.admit("p1", dummy_conn("owner"), "sk").is_err());
+        assert!(reg.admit("p1", dummy_conn("alice").await, "sk").is_ok());
+        assert!(reg.admit("p1", dummy_conn("owner").await, "sk").is_err());
+    }
+
+    #[tokio::test]
+    async fn unknown_proxy_is_rejected() {
+        let reg = VisitorRegistry::new();
+        let err = reg
+            .admit("missing", dummy_conn("u").await, "sk")
+            .unwrap_err();
+        assert!(err.to_string().contains("no visitor listener"));
     }
 
     #[test]
-    fn unknown_proxy_is_rejected() {
+    fn validate_does_not_consume_the_connection() {
         let reg = VisitorRegistry::new();
-        let err = reg.admit("missing", dummy_conn("u"), "sk").unwrap_err();
-        assert!(err.to_string().contains("no visitor listener"));
+        let _rx = reg.register("p1", "sk", vec![], "owner").unwrap();
+        assert!(reg.validate("p1", "sk", "owner").is_ok());
+        assert!(reg.validate("p1", "bad", "owner").is_err());
+        assert!(reg.validate("p1", "sk", "intruder").is_err());
     }
 }
