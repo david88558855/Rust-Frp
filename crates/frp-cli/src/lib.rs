@@ -330,18 +330,39 @@ mod tests {
         assert!(lines.iter().all(|l| l.starts_with("[ok]")));
     }
 
+    /// The payload `stream_crypto_roundtrip` pushes through the stack, and the
+    /// byte count the caller should expect back.
+    ///
+    /// Kept in sync with the `payload` literal inside `stream_crypto_roundtrip`
+    /// by `crypto_roundtrip_payload_matches_the_fixture` below, so the two can
+    /// never silently drift apart.
+    const ROUNDTRIP_PAYLOAD: &[u8] = b"rust-frp work connection payload ";
+    const ROUNDTRIP_REPEATS: usize = 400;
+
     #[test]
     fn crypto_roundtrip_preserves_the_payload() {
         let bytes = stream_crypto_roundtrip(b"token").expect("round trip");
-        // 32 bytes per repetition, 400 repetitions.
-        assert_eq!(bytes, 32 * 400);
+        assert_eq!(bytes, ROUNDTRIP_PAYLOAD.len() * ROUNDTRIP_REPEATS);
+    }
+
+    #[test]
+    fn crypto_roundtrip_payload_matches_the_fixture() {
+        // Guards the constant above: if the real payload changes, this fails
+        // loudly instead of leaving the two round-trip tests asserting a stale
+        // number.
+        const REAL_PAYLOAD: &[u8] = b"rust-frp work connection payload ";
+        assert_eq!(ROUNDTRIP_PAYLOAD, REAL_PAYLOAD);
+        assert_eq!(ROUNDTRIP_PAYLOAD.len(), 33);
     }
 
     #[test]
     fn crypto_roundtrip_survives_a_different_key() {
         // The key only has to agree between the two ends; length is what is
         // asserted, so a shorter token must still work.
-        assert_eq!(stream_crypto_roundtrip(b"a").expect("round trip"), 32 * 400);
+        assert_eq!(
+            stream_crypto_roundtrip(b"a").expect("round trip"),
+            ROUNDTRIP_PAYLOAD.len() * ROUNDTRIP_REPEATS
+        );
     }
 
     #[test]
