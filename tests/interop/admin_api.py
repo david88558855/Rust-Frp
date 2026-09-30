@@ -61,7 +61,7 @@ def request(
 
 
 def wait_for_admin(port: int, timeout: float = 20.0) -> bool:
-    return I.wait_for_port(port, timeout, host="127.0.0.1")
+    return I.wait_for_port(port, timeout)
 
 
 def normalise_status(payload):
