@@ -2,10 +2,13 @@
 //! `pkg/msg/msg.go` at `v0.71.0`.
 //!
 //! Every field carries an explicit `serde(rename)` so the emitted JSON matches
-//! the Go `encoding/json` output regardless of Rust naming conventions. Fields
-//! that upstream marks `omitempty` are *not* skipped here: Go ignores unknown or
-//! zero-valued fields on decode, so emitting them unconditionally is
-//! behaviourally identical while keeping the encoder deterministic.
+//! the Go `encoding/json` output regardless of Rust naming conventions.
+//!
+//! Fields that upstream marks `omitempty` are emitted even when zero valued,
+//! with one exception: `ClientSpec` mirrors Go exactly and serialises as `{}`
+//! when empty. Emitting extra zero-valued fields is safe because Go ignores
+//! absent and zero-valued fields alike on decode, and it keeps the encoder
+//! allocation-free deterministic.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -131,10 +134,18 @@ impl MsgType {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ClientSpec {
-    #[serde(rename = "type", default)]
+    #[serde(rename = "type", default, skip_serializing_if = "String::is_empty")]
     pub client_type: String,
-    #[serde(rename = "always_auth_pass", default)]
+    #[serde(
+        rename = "always_auth_pass",
+        default,
+        skip_serializing_if = "is_false"
+    )]
     pub always_auth_pass: bool,
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
 }
 
 /// Sent by `frpc` right after the transport is established.

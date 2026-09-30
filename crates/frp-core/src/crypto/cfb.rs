@@ -124,23 +124,27 @@ mod tests {
         let key = [0u8; 16];
         let iv = [0u8; 16];
         let mut c = Cfb128::new(&key, &iv);
-        let mut buf = *b"0123456789abcdef0123456789abcdef";
+        let plain = *b"0123456789abcdef0123456789abcdef";
+        let mut buf = plain;
         c.encrypt(&mut buf);
-        // AES-128-CFB of an all-zero key/iv block; first 16 bytes are E(0) xor 0.
+
+        // CFB-128: C_i = P_i xor E(feedback_i), where feedback_0 = IV and
+        // feedback_i is the *previous ciphertext block*.
         let mut expect = [0u8; 32];
         {
             let aes = Aes128::new_from_slice(&key).unwrap();
-            let mut b = aes::cipher::Block::<Aes128>::default();
-            b.copy_from_slice(&iv);
-            aes.encrypt_block(&mut b);
-            expect[..16].copy_from_slice(&b);
-            let mut b2 = aes::cipher::Block::<Aes128>::default();
-            b2.copy_from_slice(&b);
-            aes.encrypt_block(&mut b2);
-            expect[16..].copy_from_slice(&b2);
-        }
-        for i in 0..32 {
-            expect[i] ^= b"0123456789abcdef0123456789abcdef"[i];
+            let mut ks = aes::cipher::Block::<Aes128>::default();
+            ks.copy_from_slice(&iv);
+            aes.encrypt_block(&mut ks);
+            for i in 0..16 {
+                expect[i] = plain[i] ^ ks[i];
+            }
+            let mut ks2 = aes::cipher::Block::<Aes128>::default();
+            ks2.copy_from_slice(&expect[..16]);
+            aes.encrypt_block(&mut ks2);
+            for i in 0..16 {
+                expect[16 + i] = plain[16 + i] ^ ks2[i];
+            }
         }
         assert_eq!(&buf[..], &expect[..]);
     }

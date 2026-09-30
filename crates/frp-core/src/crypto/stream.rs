@@ -46,7 +46,11 @@ pub struct EncryptedStream<S> {
     iv_out_written: usize,
     iv_in: [u8; IV_LEN],
     iv_in_read: usize,
+    /// Ciphertext produced by a `poll_write` that the peer has not fully taken.
     pending: Vec<u8>,
+    /// Decrypted bytes that the caller's `ReadBuf` had no room for yet.
+    plain: Vec<u8>,
+    plain_pos: usize,
 }
 
 impl<S> EncryptedStream<S> {
@@ -64,6 +68,8 @@ impl<S> EncryptedStream<S> {
             iv_in: [0u8; IV_LEN],
             iv_in_read: 0,
             pending: Vec::new(),
+            plain: Vec::new(),
+            plain_pos: 0,
         }
     }
 
@@ -87,41 +93,57 @@ impl<S: AsyncRead + Unpin> AsyncRead for EncryptedStream<S> {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
-
-        while this.iv_in_read < IV_LEN {
-            let start = this.iv_in_read;
-            let mut rb = ReadBuf::new(&mut this.iv_in[start..]);
-            match Pin::new(&mut this.inner).poll_read(cx, &mut rb) {
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-                Poll::Ready(Ok(())) => {
-                    let n = rb.filled().len();
-                    if n == 0 {
-                        return Poll::Ready(Err(premature_eof("stream iv")));
-                    }
-                    this.iv_in_read += n;
-                }
-            }
-        }
-        if this.dec.is_none() {
-            this.dec = Some(Cfb128::new(&this.key, &this.iv_in));
-        }
-
-        let mut tmp = [0u8; READ_CHUNK];
-        let mut rb = ReadBuf::new(&mut tmp);
-        match ready!(Pin::new(&mut this.inner).poll_read(cx, &mut rb)) {
-            Ok(()) => {}
-            Err(e) => return Poll::Ready(Err(e)),
-        }
-        let n = rb.filled().len();
-        if n == 0 {
+        if buf.remaining() == 0 {
             return Poll::Ready(Ok(()));
         }
-        if let Some(dec) = this.dec.as_mut() {
-            dec.decrypt(&mut tmp[..n]);
+
+        loop {
+            // Hand out anything already decrypted and not yet delivered.
+            if this.plain_pos < this.plain.len() {
+                let n = (this.plain.len() - this.plain_pos).min(buf.remaining());
+                buf.put_slice(&this.plain[this.plain_pos..this.plain_pos + n]);
+                this.plain_pos += n;
+                if this.plain_pos == this.plain.len() {
+                    this.plain.clear();
+                    this.plain_pos = 0;
+                }
+                return Poll::Ready(Ok(()));
+            }
+
+            while this.iv_in_read < IV_LEN {
+                let start = this.iv_in_read;
+                let mut rb = ReadBuf::new(&mut this.iv_in[start..]);
+                match Pin::new(&mut this.inner).poll_read(cx, &mut rb) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Ready(Ok(())) => {
+                        let n = rb.filled().len();
+                        if n == 0 {
+                            return Poll::Ready(Err(premature_eof("stream iv")));
+                        }
+                        this.iv_in_read += n;
+                    }
+                }
+            }
+            if this.dec.is_none() {
+                this.dec = Some(Cfb128::new(&this.key, &this.iv_in));
+            }
+
+            let mut tmp = [0u8; READ_CHUNK];
+            let mut rb = ReadBuf::new(&mut tmp);
+            match ready!(Pin::new(&mut this.inner).poll_read(cx, &mut rb)) {
+                Ok(()) => {}
+                Err(e) => return Poll::Ready(Err(e)),
+            }
+            let n = rb.filled().len();
+            if n == 0 {
+                return Poll::Ready(Ok(()));
+            }
+            if let Some(dec) = this.dec.as_mut() {
+                dec.decrypt(&mut tmp[..n]);
+            }
+            this.plain.extend_from_slice(&tmp[..n]);
         }
-        buf.put_slice(&tmp[..n]);
-        Poll::Ready(Ok(()))
     }
 }
 
