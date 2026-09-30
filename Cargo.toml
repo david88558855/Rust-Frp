@@ -45,7 +45,7 @@ bytes = "1"
 rand = "0.8"
 hex = "0.4"
 base64 = "0.22"
-md5 = "0.7"
+md-5 = "0.10"
 
 # crypto
 aes = "0.8"

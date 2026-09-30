@@ -351,29 +351,94 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for CompressedStream<S> {
     }
 }
 
-/// Applies the same wrapping order as upstream frp.
-pub fn wrap_work_conn<S>(
-    conn: S,
-    token: &[u8],
-    use_encryption: bool,
-    use_compression: bool,
-) -> Box<dyn AsyncReadWrite + Send + Unpin>
-where
-    S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
-{
-    let mut stream: Box<dyn AsyncReadWrite + Send + Unpin> = Box::new(conn);
-    if use_encryption {
-        stream = Box::new(EncryptedStream::new(stream, token));
-    }
-    if use_compression {
-        stream = Box::new(CompressedStream::new(stream));
-    }
-    stream
+/// Concrete wrapper stack for a work connection, avoiding trait objects so the
+/// whole chain stays monomorphised and `Unpin`.
+pub enum WorkConnStream<S> {
+    /// No encryption, no compression.
+    Plain(S),
+    /// `useEncryption` only.
+    Encrypted(EncryptedStream<S>),
+    /// `useCompression` only.
+    Compressed(CompressedStream<S>),
+    /// Both, in the upstream order: compress(encrypt(conn)).
+    EncryptedCompressed(CompressedStream<EncryptedStream<S>>),
 }
 
-/// Helper alias so the wrapping chain can stay object safe.
-pub trait AsyncReadWrite: AsyncRead + AsyncWrite {}
-impl<T: AsyncRead + AsyncWrite + ?Sized> AsyncReadWrite for T {}
+impl<S> WorkConnStream<S> {
+    /// Applies the same wrapping order as upstream frp.
+    pub fn new(conn: S, token: &[u8], use_encryption: bool, use_compression: bool) -> Self {
+        match (use_encryption, use_compression) {
+            (false, false) => WorkConnStream::Plain(conn),
+            (true, false) => WorkConnStream::Encrypted(EncryptedStream::new(conn, token)),
+            (false, true) => WorkConnStream::Compressed(CompressedStream::new(conn)),
+            (true, true) => WorkConnStream::EncryptedCompressed(CompressedStream::new(
+                EncryptedStream::new(conn, token),
+            )),
+        }
+    }
+
+    pub fn uses_encryption(&self) -> bool {
+        matches!(
+            self,
+            WorkConnStream::Encrypted(_) | WorkConnStream::EncryptedCompressed(_)
+        )
+    }
+
+    pub fn uses_compression(&self) -> bool {
+        matches!(
+            self,
+            WorkConnStream::Compressed(_) | WorkConnStream::EncryptedCompressed(_)
+        )
+    }
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for WorkConnStream<S> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            WorkConnStream::Plain(s) => Pin::new(s).poll_read(cx, buf),
+            WorkConnStream::Encrypted(s) => Pin::new(s).poll_read(cx, buf),
+            WorkConnStream::Compressed(s) => Pin::new(s).poll_read(cx, buf),
+            WorkConnStream::EncryptedCompressed(s) => Pin::new(s).poll_read(cx, buf),
+        }
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for WorkConnStream<S> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        match self.get_mut() {
+            WorkConnStream::Plain(s) => Pin::new(s).poll_write(cx, buf),
+            WorkConnStream::Encrypted(s) => Pin::new(s).poll_write(cx, buf),
+            WorkConnStream::Compressed(s) => Pin::new(s).poll_write(cx, buf),
+            WorkConnStream::EncryptedCompressed(s) => Pin::new(s).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            WorkConnStream::Plain(s) => Pin::new(s).poll_flush(cx),
+            WorkConnStream::Encrypted(s) => Pin::new(s).poll_flush(cx),
+            WorkConnStream::Compressed(s) => Pin::new(s).poll_flush(cx),
+            WorkConnStream::EncryptedCompressed(s) => Pin::new(s).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            WorkConnStream::Plain(s) => Pin::new(s).poll_shutdown(cx),
+            WorkConnStream::Encrypted(s) => Pin::new(s).poll_shutdown(cx),
+            WorkConnStream::Compressed(s) => Pin::new(s).poll_shutdown(cx),
+            WorkConnStream::EncryptedCompressed(s) => Pin::new(s).poll_shutdown(cx),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
