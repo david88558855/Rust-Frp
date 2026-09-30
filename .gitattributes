@@ -1,0 +1,31 @@
+# Normalise line endings in the repository to LF.
+#
+# The repository is developed on Windows (see .github/workflows/fmt.yml, which
+# explains why there is no local toolchain), so a checkout that applies
+# `core.autocrlf=true` leaves CRLF in the working tree. That is fine for Rust
+# and Python, but not for the shell that GitHub Actions runs: a heredoc written
+# from a CRLF script lands carriage returns in the file it produces, and a value
+# appended to `$GITHUB_OUTPUT` keeps a trailing `\r` that silently breaks every
+# comparison against it.
+#
+# Declaring the canonical form here means the working tree can stay CRLF while
+# the repository, and therefore the runner, is always LF. Text files are
+# detected rather than listed, so new source files inherit the rule.
+* text=auto eol=lf
+
+# Windows batch and PowerShell scripts are the exception: their interpreters
+# expect CRLF, and git must not rewrite them on checkout.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets must never be touched.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tar binary
