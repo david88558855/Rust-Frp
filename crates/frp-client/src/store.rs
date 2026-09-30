@@ -119,40 +119,52 @@ impl Store {
 
     pub fn add_proxy(&self, proxy: ProxyConfig) -> Result<(), StoreError> {
         let name = proxy.name().to_string();
-        let mut proxies = self.proxies.lock().unwrap();
-        if proxies.contains_key(&name) {
-            return Err(StoreError::AlreadyExists(KIND_PROXY, name));
+        {
+            let mut proxies = self.proxies.lock().unwrap();
+            if proxies.contains_key(&name) {
+                return Err(StoreError::AlreadyExists(KIND_PROXY, name));
+            }
+            proxies.insert(name.clone(), proxy);
         }
-        proxies.insert(name.clone(), proxy);
-        self.save().map_err(|e| {
-            proxies.remove(&name);
-            StoreError::Persist(e.to_string())
-        })
+        if let Err(e) = self.save() {
+            self.proxies.lock().unwrap().remove(&name);
+            return Err(StoreError::Persist(e.to_string()));
+        }
+        Ok(())
     }
 
     pub fn update_proxy(&self, proxy: ProxyConfig) -> Result<(), StoreError> {
         let name = proxy.name().to_string();
-        let mut proxies = self.proxies.lock().unwrap();
-        let previous = proxies
-            .get(&name)
-            .cloned()
-            .ok_or_else(|| StoreError::NotFound(KIND_PROXY, name.clone()))?;
-        proxies.insert(name.clone(), proxy);
-        self.save().map_err(|e| {
-            proxies.insert(name, previous);
-            StoreError::Persist(e.to_string())
-        })
+        let previous = {
+            let proxies = self.proxies.lock().unwrap();
+            proxies
+                .get(&name)
+                .cloned()
+                .ok_or_else(|| StoreError::NotFound(KIND_PROXY, name.clone()))?
+        };
+        self.proxies.lock().unwrap().insert(name.clone(), proxy);
+        if let Err(e) = self.save() {
+            self.proxies.lock().unwrap().insert(name, previous);
+            return Err(StoreError::Persist(e.to_string()));
+        }
+        Ok(())
     }
 
     pub fn remove_proxy(&self, name: &str) -> Result<(), StoreError> {
-        let mut proxies = self.proxies.lock().unwrap();
-        let previous = proxies
+        let previous = self
+            .proxies
+            .lock()
+            .unwrap()
             .remove(name)
             .ok_or_else(|| StoreError::NotFound(KIND_PROXY, name.to_string()))?;
-        self.save().map_err(|e| {
-            proxies.insert(name.to_string(), previous);
-            StoreError::Persist(e.to_string())
-        })
+        if let Err(e) = self.save() {
+            self.proxies
+                .lock()
+                .unwrap()
+                .insert(name.to_string(), previous);
+            return Err(StoreError::Persist(e.to_string()));
+        }
+        Ok(())
     }
 
     pub fn get_proxy(&self, name: &str) -> Option<ProxyConfig> {
@@ -179,40 +191,55 @@ impl Store {
 
     pub fn add_visitor(&self, visitor: VisitorConfig) -> Result<(), StoreError> {
         let name = visitor.name().to_string();
-        let mut visitors = self.visitors.lock().unwrap();
-        if visitors.contains_key(&name) {
-            return Err(StoreError::AlreadyExists(KIND_VISITOR, name));
+        {
+            let mut visitors = self.visitors.lock().unwrap();
+            if visitors.contains_key(&name) {
+                return Err(StoreError::AlreadyExists(KIND_VISITOR, name));
+            }
+            visitors.insert(name.clone(), visitor);
         }
-        visitors.insert(name.clone(), visitor);
-        self.save().map_err(|e| {
-            visitors.remove(&name);
-            StoreError::Persist(e.to_string())
-        })
+        if let Err(e) = self.save() {
+            self.visitors.lock().unwrap().remove(&name);
+            return Err(StoreError::Persist(e.to_string()));
+        }
+        Ok(())
     }
 
     pub fn update_visitor(&self, visitor: VisitorConfig) -> Result<(), StoreError> {
         let name = visitor.name().to_string();
-        let mut visitors = self.visitors.lock().unwrap();
-        let previous = visitors
-            .get(&name)
-            .cloned()
-            .ok_or_else(|| StoreError::NotFound(KIND_VISITOR, name.clone()))?;
-        visitors.insert(name.clone(), visitor);
-        self.save().map_err(|e| {
-            visitors.insert(name, previous);
-            StoreError::Persist(e.to_string())
-        })
+        let previous = {
+            let visitors = self.visitors.lock().unwrap();
+            visitors
+                .get(&name)
+                .cloned()
+                .ok_or_else(|| StoreError::NotFound(KIND_VISITOR, name.clone()))?
+        };
+        self.visitors
+            .lock()
+            .unwrap()
+            .insert(name.clone(), visitor);
+        if let Err(e) = self.save() {
+            self.visitors.lock().unwrap().insert(name, previous);
+            return Err(StoreError::Persist(e.to_string()));
+        }
+        Ok(())
     }
 
     pub fn remove_visitor(&self, name: &str) -> Result<(), StoreError> {
-        let mut visitors = self.visitors.lock().unwrap();
-        let previous = visitors
+        let previous = self
+            .visitors
+            .lock()
+            .unwrap()
             .remove(name)
             .ok_or_else(|| StoreError::NotFound(KIND_VISITOR, name.to_string()))?;
-        self.save().map_err(|e| {
-            visitors.insert(name.to_string(), previous);
-            StoreError::Persist(e.to_string())
-        })
+        if let Err(e) = self.save() {
+            self.visitors
+                .lock()
+                .unwrap()
+                .insert(name.to_string(), previous);
+            return Err(StoreError::Persist(e.to_string()));
+        }
+        Ok(())
     }
 
     pub fn get_visitor(&self, name: &str) -> Option<VisitorConfig> {
