@@ -158,6 +158,11 @@ cargo clippy --workspace --all-targets
 
 cargo build --release
 python3 tests/e2e/e2e.py        # defaults to target/release/rust-frp
+
+# Wire compatibility against an upstream frp release of the same version.
+python3 tests/interop/interop.py \
+    --rust target/release/rust-frp \
+    --upstream /path/to/frp_0.71.0_linux_amd64
 ```
 
 The unit tests cover the protocol layer, the crypto streams, the routers and
@@ -167,6 +172,14 @@ peers — a wrong assumption shared by a test and its implementation passes both
 traffic through the tunnel: `tcp`, `udp` and an `http` virtual host over a yamux
 session, the same with `tcpMux` off, TLS on the control port, and an `stcp`
 visitor tunnelling to another client's proxy. It is part of CI.
+
+`tests/interop/interop.py` goes further and runs the Rust peer against an
+upstream frp release in all four combinations (Rust↔upstream in both
+directions, plus Rust↔Rust and upstream↔upstream as controls). It needs a
+release tarball from the frp project, so it is not part of CI, but it is the
+check that matters most for compatibility: a detail both Rust peers get wrong
+the same way is invisible to the e2e suite. The AES key salt was exactly that
+kind of bug.
 
 ## Roadmap
 

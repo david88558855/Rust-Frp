@@ -91,24 +91,65 @@ mod tests {
         assert_ne!(a, derive_key(b"other"));
     }
 
-    /// Known-answer test pinned to a real frpc → frps session.
+    /// Known-answer test pinned to a real frps → frpc session.
     ///
-    /// The token, IV and ciphertext were captured from frp v0.71.0 talking to
-    /// itself over loopback with `auth.token = "interop-token"`. The expected
-    /// plaintext is the `NewProxy` the client sent immediately after login,
-    /// followed by its first heartbeat.
+    /// Token, IV and ciphertext were captured from frp v0.71.0 talking to
+    /// itself over loopback with `auth.token = "interop-token"`. The plaintext
+    /// is the first three messages the server sent after `LoginResp`: the
+    /// `ReqWorkConn` that follows a proxy registration, the `NewProxyResp`,
+    /// and the reply to the client's first heartbeat.
     ///
-    /// This is the test that would have caught the salt: deriving with
-    /// `"crypto"`, the value `golib/crypto` declares, produces a stream that
-    /// still round trips against itself and silently matches neither peer.
+    /// This is the test that would have caught the salt. Deriving with
+    /// `"crypto"` — the value `golib/crypto` declares — produces a stream that
+    /// still round trips against itself, so every self contained test passes
+    /// while matching neither frpc nor frps.
     #[test]
-    fn decrypts_a_real_frp_control_frame() {
+    fn decrypts_real_frp_server_frames() {
         // PBKDF2-HMAC-SHA1("interop-token", "frp", 64, 16).
         assert_eq!(
             hex::encode(derive_key(b"interop-token")),
             "01c025243c806ff9467be251b476d302"
         );
 
+        let iv = hex::decode("61948bd0e5083289c4794895ac245dd0").unwrap();
+        let mut ct = hex::decode(
+            "687965180a3e5833d83af31acf05da24\
+             a5b84fc7d4aa1dcc971bca9c83dc69d1\
+             281979a886cd2f046d233634ad6e2d4b\
+             11d66d56428f05799b4a2ed6ebe01912\
+             489b29938d992d11b90291acaccd41",
+        )
+        .unwrap();
+
+        let mut iv_bytes = [0u8; 16];
+        iv_bytes.copy_from_slice(&iv);
+        Cfb128::new(&derive_key(b"interop-token"), &iv_bytes).decrypt(&mut ct);
+
+        let mut expected = Vec::new();
+        for (type_byte, body) in [
+            (b'r', &b"{}"[..]),
+            (
+                b'2',
+                &br#"{"proxy_name":"tcp-echo","remote_addr":":38910"}"#[..],
+            ),
+            (b'4', &b"{}"[..]),
+        ] {
+            expected.push(type_byte);
+            expected.extend_from_slice(&(body.len() as u64).to_be_bytes());
+            expected.extend_from_slice(body);
+        }
+
+        // Every captured byte decodes, with no frame left dangling.
+        assert_eq!(ct.len(), 79);
+        assert_eq!(ct, expected);
+    }
+
+    /// The same session's client → server direction, covering `NewProxy`.
+    ///
+    /// The capture window closed part way through the client's first
+    /// heartbeat, so this asserts the exact prefix that was recorded.
+    #[test]
+    fn decrypts_a_real_frp_client_frame() {
         let iv = hex::decode("c5ed278354366eda9220cdc1e17ff8a6").unwrap();
         let mut ct = hex::decode(
             "f01186d5d620ecaafd791f91f99ccf8e\
@@ -123,15 +164,13 @@ mod tests {
         iv_bytes.copy_from_slice(&iv);
         Cfb128::new(&derive_key(b"interop-token"), &iv_bytes).decrypt(&mut ct);
 
-        let mut expected = Vec::new();
-        expected.push(b'p');
-        expected.extend_from_slice(&64u64.to_be_bytes());
-        expected.extend_from_slice(
-            br#"{"proxy_name":"tcp-echo","proxy_type":"tcp","remote_port":38910}"#,
-        );
+        let body = br#"{"proxy_name":"tcp-echo","proxy_type":"tcp","remote_port":38910}"#;
+        let mut expected = vec![b'p'];
+        expected.extend_from_slice(&(body.len() as u64).to_be_bytes());
+        expected.extend_from_slice(body);
+        // The heartbeat header that follows, cut short by the capture.
         expected.push(b'h');
-        expected.extend_from_slice(&2u64.to_be_bytes());
-        expected.extend_from_slice(b"{}");
+        expected.extend_from_slice(&[0u8; 6]);
 
         assert_eq!(ct, expected);
     }
