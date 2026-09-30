@@ -69,7 +69,7 @@ pub async fn start(
     };
 
     let proxy = Arc::new(UdpProxy {
-        remote_addr: bind_addr.clone(),
+        remote_addr: format!(":{port}"),
         spec,
         port,
         cancel: CancellationToken::new(),
