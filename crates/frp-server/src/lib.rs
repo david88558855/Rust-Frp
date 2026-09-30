@@ -7,13 +7,16 @@
 //! * control listener with frp's custom TLS first byte handling and token auth;
 //! * control sessions: run-id replacement, heartbeat supervision, work
 //!   connection pool, `NewProxy` / `CloseProxy` handling;
-//! * `tcp`, `udp`, `stcp` and `sudp` proxies with port allocation;
+//! * `tcp`, `udp`, `stcp`, `sudp`, `http` and `https` proxies with port
+//!   allocation;
+//! * `http` / `https` virtual host routing: HTTP is terminated and replayed
+//!   over a work connection, HTTPS routes on the SNI of a peeked ClientHello
+//!   and forwards the still-encrypted stream;
 //! * visitor admission for `stcp` / `sudp`;
 //! * dashboard, admin JSON API and Prometheus endpoint.
 //!
-//! Not implemented yet (tracked in the repository roadmap): `http` / `https`
-//! virtual host routing, `tcpmux`, `xtcp` NAT hole punching, proxy groups,
-//! bandwidth limiting and wire protocol v2.
+//! Not implemented yet (tracked in the repository roadmap): `tcpmux`, `xtcp`
+//! NAT hole punching, proxy groups, bandwidth limiting and wire protocol v2.
 
 #![forbid(unsafe_code)]
 

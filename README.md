@@ -55,6 +55,8 @@ release build matrix for Linux, Windows and macOS.
 # frps.toml
 bindAddr = "0.0.0.0"
 bindPort = 7000
+vhostHTTPPort = 8080
+vhostHTTPSPort = 8443
 subDomainHost = "example.com"
 allowPorts = [{ start = 6000, end = 6010 }]
 enablePrometheus = true
@@ -81,6 +83,10 @@ and `transport.tls.force = true` rejects plaintext clients. The dashboard and
 admin API are served on `webServer` (`/`, `/api/serverinfo`, `/api/proxy`,
 `/api/clients`, `/healthz`, plus `/metrics` when `enablePrometheus` is set).
 
+The virtual host ports only route; they need no certificate of their own.
+`vhostHTTPPort` serves `http` proxies by `Host`/location and `vhostHTTPSPort`
+serves `https` proxies by SNI, forwarding the TLS stream untouched.
+
 ## Roadmap
 
 - [x] **M1 — protocol core**: message model, framing, token auth, AES-128-CFB
@@ -91,9 +97,13 @@ admin API are served on `webServer` (`/`, `/api/serverinfo`, `/api/proxy`,
         `NewProxy` / `CloseProxy`;
   - [x] `tcp`, `udp`, `stcp`, `sudp` proxies, port manager with `allowPorts`;
   - [x] visitor admission for `stcp` / `sudp`;
+  - [x] `http` / `https` virtual host routing on `vhostHTTPPort` /
+        `vhostHTTPSPort`: HTTP is terminated and replayed over a work
+        connection (host rewrite, `X-Forwarded-For`, request/response header
+        policies, basic auth, `CONNECT` tunnelling, custom 404); HTTPS routes on
+        the SNI of a peeked ClientHello and forwards the still-encrypted stream
+        so TLS terminates end to end at the backend;
   - [x] dashboard, JSON admin API, Prometheus endpoint;
-  - [ ] `http` / `https` virtual host routing on `vhostHTTPPort` /
-        `vhostHTTPSPort`;
   - [ ] `tcpmux`, `xtcp` NAT hole punching, proxy groups, bandwidth limiting.
 - [ ] **M3 — frpc**: config loading (TOML/YAML/JSON + `includes`), connector
       (TCP/TLS/WebSocket), proxy managers, STCP/XTCP visitors, health checks,
