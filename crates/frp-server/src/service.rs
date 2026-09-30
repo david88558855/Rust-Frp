@@ -9,6 +9,7 @@ use frp_core::crypto::auth;
 use frp_core::crypto::stream::EncryptedStream;
 use frp_core::msg::{Login, LoginResp, Message, NewVisitorConnResp};
 use frp_core::transport::{accept_server_stream, build_server_tls_config, ServerStream};
+use frp_core::vhost::VhostRouter;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -21,6 +22,7 @@ use crate::metrics::Metrics;
 use crate::ports::PortManager;
 use crate::proxy::WorkConn;
 use crate::util::{response_error, unix_now};
+use crate::vhost_server;
 use crate::visitor::{VisitorConn, VisitorRegistry};
 
 /// A configured, runnable frp server.
@@ -57,6 +59,8 @@ impl Service {
                 cfg.allow_ports.clone(),
             )),
             metrics: Arc::new(Metrics::new()),
+            vhost_http: Arc::new(VhostRouter::new()),
+            vhost_https: Arc::new(VhostRouter::new()),
             visitors: Arc::new(VisitorRegistry::new()),
             controls: Arc::new(ControlManager::new()),
             token: token.into_bytes(),
@@ -82,6 +86,24 @@ impl Service {
             tokio::spawn(async move {
                 if let Err(e) = dashboard::serve(dashboard_ctx).await {
                     warn!(error = %e, "dashboard stopped");
+                }
+            });
+        }
+
+        if cfg.vhost_http_port > 0 {
+            let vhost_ctx = ctx.clone();
+            tokio::spawn(async move {
+                if let Err(e) = vhost_server::serve_http(vhost_ctx).await {
+                    warn!(error = %e, "http vhost server stopped");
+                }
+            });
+        }
+
+        if cfg.vhost_https_port > 0 {
+            let vhost_ctx = ctx.clone();
+            tokio::spawn(async move {
+                if let Err(e) = vhost_server::serve_https(vhost_ctx).await {
+                    warn!(error = %e, "https vhost server stopped");
                 }
             });
         }

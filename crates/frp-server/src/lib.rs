@@ -20,11 +20,13 @@
 pub mod context;
 pub mod control;
 pub mod dashboard;
+pub mod http_util;
 pub mod metrics;
 pub mod ports;
 pub mod proxy;
 pub mod service;
 pub mod util;
+pub mod vhost_server;
 pub mod visitor;
 
 #[cfg(test)]

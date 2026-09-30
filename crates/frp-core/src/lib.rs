@@ -17,6 +17,8 @@
 //!   (see [`crypto::snappy`]);
 //! * the control port accepts frp's obfuscated TLS first byte `0x17`
 //!   (see [`transport`]);
+//! * the HTTPS virtual host port is routed by the SNI of a peeked ClientHello
+//!   and the still-encrypted stream is forwarded verbatim (see [`tls_sni`]);
 //! * HTTP/HTTPS proxies are routed with the same domain / location / http-user
 //!   precedence as upstream (see [`vhost`]).
 
@@ -27,6 +29,7 @@ pub mod codec;
 pub mod config;
 pub mod crypto;
 pub mod msg;
+pub mod tls_sni;
 pub mod transport;
 pub mod util;
 pub mod vhost;

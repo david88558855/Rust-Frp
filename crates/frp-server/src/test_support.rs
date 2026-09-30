@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use frp_core::config::server::ServerConfig;
+use frp_core::vhost::VhostRouter;
 use tokio_util::sync::CancellationToken;
 
 use crate::context::ServerContext;
@@ -25,6 +26,8 @@ pub fn context_with(mut cfg: ServerConfig) -> ServerContext {
         tcp_ports: Arc::new(tcp_ports),
         udp_ports: Arc::new(udp_ports),
         metrics: Arc::new(Metrics::new()),
+        vhost_http: Arc::new(VhostRouter::new()),
+        vhost_https: Arc::new(VhostRouter::new()),
         visitors: Arc::new(VisitorRegistry::new()),
         controls: Arc::new(ControlManager::new()),
         token: b"test-token".to_vec(),

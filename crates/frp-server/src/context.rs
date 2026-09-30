@@ -3,10 +3,12 @@
 use std::sync::Arc;
 
 use frp_core::config::server::ServerConfig;
+use frp_core::vhost::VhostRouter;
 
 use crate::control::ControlManager;
 use crate::metrics::Metrics;
 use crate::ports::PortManager;
+use crate::proxy::http::{HttpProxy, HttpsProxy};
 use crate::visitor::VisitorRegistry;
 
 /// Everything a proxy needs to do its job.
@@ -17,6 +19,10 @@ pub struct ServerContext {
     pub metrics: Arc<Metrics>,
     pub tcp_ports: Arc<PortManager>,
     pub udp_ports: Arc<PortManager>,
+    /// Routes served on `vhostHTTPPort`.
+    pub vhost_http: Arc<VhostRouter<Arc<HttpProxy>>>,
+    /// Routes served on `vhostHTTPSPort`, keyed by SNI.
+    pub vhost_https: Arc<VhostRouter<Arc<HttpsProxy>>>,
     pub visitors: Arc<VisitorRegistry>,
     pub controls: Arc<ControlManager>,
     pub shutdown: tokio_util::sync::CancellationToken,

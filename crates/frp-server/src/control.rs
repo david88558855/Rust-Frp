@@ -223,6 +223,16 @@ impl Control {
                 let addr = proxy.remote_addr();
                 Ok((proxy, addr))
             }
+            "http" => {
+                let proxy = crate::proxy::http::start_http(ctx, &ctl, spec)?;
+                let addr = proxy.remote_addr();
+                Ok((proxy, addr))
+            }
+            "https" => {
+                let proxy = crate::proxy::http::start_https(ctx, &ctl, spec)?;
+                let addr = proxy.remote_addr();
+                Ok((proxy, addr))
+            }
             other => Err(anyhow!(
                 "proxy type [{other}] is not implemented in this build yet"
             )),
