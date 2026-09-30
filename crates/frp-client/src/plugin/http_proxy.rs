@@ -55,15 +55,17 @@ impl HttpProxyPlugin {
         // The handler needs the plugin and the plugin needs the bridge, so the
         // handler holds a weak reference; an `Arc` here would be a cycle.
         let weak = Arc::downgrade(&plugin);
-        let handler: Handler = Arc::new(move |req: Request<Incoming>, _peer: Option<SocketAddr>| {
-            let weak = weak.clone();
-            Box::pin(async move {
-                match weak.upgrade() {
-                    Some(plugin) => plugin.serve(req).await,
-                    None => proxy_auth_required(),
-                }
-            })
-        });
+        let handler: Handler = Arc::new(
+            move |req: Request<Incoming>, _peer: Option<SocketAddr>, _sni: Option<String>| {
+                let weak = weak.clone();
+                Box::pin(async move {
+                    match weak.upgrade() {
+                        Some(plugin) => plugin.serve(req).await,
+                        None => proxy_auth_required(),
+                    }
+                })
+            },
+        );
         let bridge = Bridge::new(handler, None, false, plugin.cancel.clone());
         let _ = plugin.bridge.set(bridge);
         plugin

@@ -62,11 +62,12 @@ impl StaticFilePlugin {
             user: http_user.to_string(),
             password: http_password.to_string(),
         };
-        let handler: Handler =
-            Arc::new(move |req: Request<Incoming>, _peer: Option<SocketAddr>| {
+        let handler: Handler = Arc::new(
+            move |req: Request<Incoming>, _peer: Option<SocketAddr>, _sni: Option<String>| {
                 let state = state.clone();
                 Box::pin(async move { state.serve(req).await })
-            });
+            },
+        );
 
         let cancel = CancellationToken::new();
         let bridge = Bridge::new(handler, None, false, cancel.clone());

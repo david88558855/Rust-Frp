@@ -90,3 +90,36 @@ jobs:
         run: cargo build --release --workspace
       - name: Run the e2e suite
         run: python3 tests/e2e/e2e.py target/release/rust-frp
+
+  # The differential layer, and the only one that can catch a mistake both ends
+  # share. The crypto module derived its AES key with the wrong salt for the
+  # whole of milestone 1: every unit test passed, the e2e suite passed, and the
+  # two peers talked to each other perfectly -- because they were wrong in the
+  # same way. Running against a real frp release is what found it.
+  interop:
+    name: differential vs frp 0.71.0
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release --workspace
+      - name: Fetch the reference implementation
+        run: |
+          curl -fsSL -o frp.tar.gz \
+            https://github.com/fatedier/frp/releases/download/v0.71.0/frp_0.71.0_linux_amd64.tar.gz
+          tar xzf frp.tar.gz
+          ./frp_0.71.0_linux_amd64/frps --version
+      - name: Wire protocol interoperability
+        run: |
+          python3 tests/interop/interop.py \
+            --rust target/release/rust-frp \
+            --upstream frp_0.71.0_linux_amd64 \
+            --with-visitors
+      - name: Client plugin interoperability
+        run: |
+          python3 tests/interop/plugins.py \
+            --rust target/release/rust-frp \
+            --upstream frp_0.71.0_linux_amd64

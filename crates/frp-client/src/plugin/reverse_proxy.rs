@@ -14,6 +14,13 @@
 //! | `http2https` | plain | TLS | the inbound `X-Forwarded-*` copied back verbatim |
 //! | `https2http` | TLS | plain | `X-Forwarded-For` appended with the client IP, plus host and proto |
 //! | `https2https` | TLS | TLS | same as `https2http` |
+//!
+//! The two TLS-terminating ones also share upstream's misdirected-request
+//! guard: when the peer sent an SNI and it does not match the request's Host,
+//! the request is refused with `421` rather than being served. It is the only
+//! thing standing between a certificate for one name and traffic addressed to
+//! another, so it is worth getting the comparison exactly right --
+//! [`canonical_host`] is a port of `pkg/util/http.CanonicalHost`.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -136,29 +143,37 @@ impl BridgePlugin {
         // handler holds a weak reference: keeping an `Arc` here would form a
         // cycle and pin the plugin in memory for the life of the process.
         let weak = Arc::downgrade(&plugin);
-        let handler: Handler = Arc::new(move |req: Request<Incoming>, peer: Option<SocketAddr>| {
-            let weak = weak.clone();
-            Box::pin(async move {
-                match weak.upgrade() {
-                    Some(plugin) => plugin.serve(req, peer).await,
-                    None => service_unavailable(),
-                }
-            })
-        });
+        let handler: Handler =
+            Arc::new(
+                move |req: Request<Incoming>, peer: Option<SocketAddr>, sni: Option<String>| {
+                    let weak = weak.clone();
+                    Box::pin(async move {
+                        match weak.upgrade() {
+                            Some(plugin) => plugin.serve(req, peer, sni).await,
+                            None => service_unavailable(),
+                        }
+                    })
+                },
+            );
         let bridge = Bridge::new(handler, acceptor, http2, plugin.cancel.clone());
         let _ = plugin.bridge.set(bridge);
         Ok(plugin)
     }
 
     /// One request, rewritten towards the backend.
-    async fn serve(&self, req: Request<Incoming>, peer: Option<SocketAddr>) -> Response<RespBody> {
+    async fn serve(
+        &self,
+        req: Request<Incoming>,
+        peer: Option<SocketAddr>,
+        server_name: Option<String>,
+    ) -> Response<RespBody> {
+        if self.kind.terminates_tls() && is_misdirected(server_name.as_deref(), &request_host(&req))
+        {
+            return misdirected();
+        }
+
         let upgrade_hint = upgrade_type(req.headers());
-        let inbound_host = req
-            .headers()
-            .get(HOST)
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or_default()
-            .to_string();
+        let inbound_host = request_host(&req);
         let path_and_query = req
             .uri()
             .path_and_query()
@@ -321,6 +336,91 @@ fn is_forwarded_header(name: &str) -> bool {
         || name.eq_ignore_ascii_case("x-forwarded-proto")
 }
 
+/// The Host a Go `http.Server` would report as `r.Host`.
+///
+/// For an absolute-form request target the authority from the request line
+/// wins over the `Host` header, which is what `net/http`'s request reader does;
+/// for the origin-form everyone actually sends they are the same value.
+fn request_host(req: &Request<Incoming>) -> String {
+    if let Some(authority) = req.uri().authority() {
+        return authority.as_str().to_string();
+    }
+    req.headers()
+        .get(HOST)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// Upstream's `pkg/util/http.CanonicalHost`: lower-cased, port removed, and a
+/// trailing dot on a fully qualified name dropped.
+///
+/// An address it cannot make sense of canonicalises to the empty string. The
+/// Go caller ignores the error, so an empty result is not a mismatch -- which
+/// is why [`is_misdirected`] tests the SNI for emptiness after canonicalising
+/// rather than before.
+pub(crate) fn canonical_host(host: &str) -> String {
+    let lowered = host.to_ascii_lowercase();
+    let without_port = if has_port(&lowered) {
+        split_host_port(&lowered).unwrap_or_default()
+    } else {
+        lowered
+    };
+    without_port
+        .strip_suffix('.')
+        .unwrap_or(&without_port)
+        .to_string()
+}
+
+/// Whether `host` carries a port, matching `net.SplitHostPort`'s idea of one.
+/// A bare IPv6 address has several colons but no port; a bracketed one does.
+fn has_port(host: &str) -> bool {
+    match host.matches(':').count() {
+        0 => false,
+        1 => true,
+        _ => host.starts_with('[') && host.contains("]:"),
+    }
+}
+
+/// The host half of `host:port`, or `None` when `net.SplitHostPort` would fail.
+fn split_host_port(host: &str) -> Option<String> {
+    if let Some(rest) = host.strip_prefix('[') {
+        let (inside, after) = rest.split_once(']')?;
+        let port = after.strip_prefix(':')?;
+        return valid_port(port).then(|| inside.to_string());
+    }
+    let (name, port) = host.rsplit_once(':')?;
+    valid_port(port).then(|| name.to_string())
+}
+
+/// `net.validOptionalPort`: empty, or a colon followed by digits.
+fn valid_port(port: &str) -> bool {
+    port.is_empty() || port.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Reproduces `withMisdirectedRequestCheck`.
+///
+/// Only a non-empty SNI that differs from the request Host is refused: a peer
+/// that sent no SNI at all gets served, which is how every plain HTTP client
+/// behind a TLS-terminating proxy behaves.
+fn is_misdirected(server_name: Option<&str>, host: &str) -> bool {
+    let Some(server_name) = server_name else {
+        return false;
+    };
+    let sni = canonical_host(server_name);
+    if sni.is_empty() {
+        return false;
+    }
+    sni != canonical_host(host)
+}
+
+fn misdirected() -> Response<RespBody> {
+    Response::builder()
+        .status(StatusCode::MISDIRECTED_REQUEST)
+        .body(full_body(""))
+        .unwrap_or_else(|_| Response::new(full_body("")))
+}
+
 fn bad_gateway(message: &str) -> Response<RespBody> {
     Response::builder()
         .status(StatusCode::BAD_GATEWAY)
@@ -378,5 +478,53 @@ mod tests {
         assert!(is_forwarded_header("x-forwarded-proto"));
         assert!(is_forwarded_header("Forwarded"));
         assert!(!is_forwarded_header("X-Forwarded-By"));
+    }
+
+    /// The cases `pkg/util/http.CanonicalHost` documents: lower-cased, port
+    /// stripped, trailing dot dropped.
+    #[test]
+    fn canonical_host_matches_the_upstream_implementation() {
+        assert_eq!(canonical_host("Example.COM"), "example.com");
+        assert_eq!(canonical_host("example.com:8080"), "example.com");
+        // `net.SplitHostPort` accepts an empty port.
+        assert_eq!(canonical_host("example.com:"), "example.com");
+        assert_eq!(canonical_host("example.com."), "example.com");
+        assert_eq!(canonical_host("[::1]:8080"), "::1");
+        assert_eq!(canonical_host("127.0.0.1:80"), "127.0.0.1");
+        // A bare IPv6 literal has colons but no port, so nothing is stripped.
+        assert_eq!(canonical_host("::1"), "::1");
+        // `hasPort` is false for `a:b:c` unless it is bracketed, so the whole
+        // thing is treated as a host.
+        assert_eq!(canonical_host("a:b:c"), "a:b:c");
+        // A bracketed address with no port is a `SplitHostPort` error, and the
+        // caller ignores it, so the result is the empty string.
+        assert_eq!(canonical_host("[::1]"), "");
+        assert_eq!(canonical_host("host:notaport"), "");
+    }
+
+    #[test]
+    fn the_misdirected_check_follows_upstream() {
+        // A peer that sent no SNI is always served.
+        assert!(!is_misdirected(None, "anything.test"));
+        // Matching names are served, however they are spelled.
+        assert!(!is_misdirected(Some("front.example"), "front.example"));
+        assert!(!is_misdirected(Some("Front.Example"), "front.example:443"));
+        assert!(!is_misdirected(Some("front.example."), "front.example"));
+        // The case the guard exists for.
+        assert!(is_misdirected(Some("any.sni"), "front.example"));
+        assert!(is_misdirected(Some("front.example"), "other.example"));
+        // A request with no usable Host is a mismatch as soon as an SNI was
+        // sent: upstream compares against the empty string it canonicalised to.
+        assert!(is_misdirected(Some("front.example"), ""));
+        // ... but an SNI that canonicalises to nothing disables the check.
+        assert!(!is_misdirected(Some("[::1]"), "anything.test"));
+    }
+
+    #[test]
+    fn only_the_tls_terminating_kinds_are_guarded() {
+        assert!(Kind::Https2Http.terminates_tls());
+        assert!(Kind::Https2Https.terminates_tls());
+        assert!(!Kind::Http2Http.terminates_tls());
+        assert!(!Kind::Http2Https.terminates_tls());
     }
 }

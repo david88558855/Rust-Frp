@@ -48,13 +48,17 @@ pub fn full_body(body: impl Into<Bytes>) -> RespBody {
         .boxed()
 }
 
-/// Handles one inbound request. `peer` is the address the server reported for
-/// the work connection, which the TLS-terminating plugins put in
-/// `X-Forwarded-For`.
+/// Handles one inbound request.
+///
+/// `peer` is the address the server reported for the work connection, which the
+/// TLS-terminating plugins put in `X-Forwarded-For`. `server_name` is the SNI
+/// the peer asked for, present only when this bridge terminated TLS; upstream's
+/// `withMisdirectedRequestCheck` needs it to compare against the request Host.
 pub type Handler = Arc<
     dyn Fn(
             Request<Incoming>,
             Option<SocketAddr>,
+            Option<String>,
         ) -> Pin<Box<dyn Future<Output = Response<RespBody>> + Send>>
         + Send
         + Sync,
@@ -113,20 +117,28 @@ async fn serve(
     http2: bool,
     peer: Option<SocketAddr>,
 ) -> Result<()> {
-    let io: PluginConn = match acceptor {
+    let (io, server_name): (PluginConn, Option<String>) = match acceptor {
         Some(config) => {
             let tls = tokio_rustls::TlsAcceptor::from(config)
                 .accept(conn)
                 .await
                 .context("plugin TLS handshake")?;
-            Box::new(tls)
+            // Read the SNI out before boxing: the handler needs it to decide
+            // whether the Host of the request it is about to see belongs here.
+            let name = tls
+                .get_ref()
+                .1
+                .server_name()
+                .map(|name| name.to_string());
+            (Box::new(tls), name)
         }
-        None => conn,
+        None => (conn, None),
     };
 
     let service = service_fn(move |req: Request<Incoming>| {
         let handler = handler.clone();
-        async move { Ok::<_, Infallible>(handler(req, peer).await) }
+        let server_name = server_name.clone();
+        async move { Ok::<_, Infallible>(handler(req, peer, server_name).await) }
     });
 
     if http2 {
