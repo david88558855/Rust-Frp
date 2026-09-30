@@ -150,6 +150,24 @@ certificate" rule are both reproduced, so a stock frps works out of the box.
 and `quic`, wire protocol `v2`, and the `xtcp`/`sudp` visitors are rejected at
 configuration load time rather than silently misbehaving.
 
+## Testing
+
+```bash
+cargo test --workspace          # unit tests
+cargo clippy --workspace --all-targets
+
+cargo build --release
+python3 tests/e2e/e2e.py        # defaults to target/release/rust-frp
+```
+
+The unit tests cover the protocol layer, the crypto streams, the routers and
+each component in isolation. They cannot catch a mismatch between the two
+peers — a wrong assumption shared by a test and its implementation passes both
+— so `tests/e2e/e2e.py` runs the built binary against itself and checks real
+traffic through the tunnel: `tcp`, `udp` and an `http` virtual host over a yamux
+session, the same with `tcpMux` off, TLS on the control port, and an `stcp`
+visitor tunnelling to another client's proxy. It is part of CI.
+
 ## Roadmap
 
 - [x] **M1 — protocol core**: message model, framing, token auth, AES-128-CFB
@@ -190,8 +208,13 @@ configuration load time rather than silently misbehaving.
 - [ ] **M5 — extended transports**: KCP, QUIC, wire protocol v2 (AEAD
       handshake), OIDC auth, SSH tunnel gateway.
 
-Interoperability is validated by running a Rust peer against an upstream frp binary
-of the same version.
+CI runs the Rust peers against each other, which is what catches regressions in
+the parts of the protocol where both sides are ours. Wire compatibility with
+upstream frp is derived from the upstream v0.71.0 sources — frame layout, token
+and visitor signatures, cipher and compression choices, control-connection
+encryption, TLS first byte, yamux framing — and the next verification step is to
+run a Rust peer against an upstream frp binary of the same version, in both
+directions.
 
 ## License and attribution
 
