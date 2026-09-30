@@ -181,6 +181,35 @@ check that matters most for compatibility: a detail both Rust peers get wrong
 the same way is invisible to the e2e suite. The AES key salt was exactly that
 kind of bug.
 
+## Wire compatibility
+
+Verified by running the Rust binary against the official `frp_0.71.0` release,
+one as the server and one as the client, over loopback. `tests/interop/interop.py`
+runs the matrix; the results below are from a run on Windows with both peers
+built from this repository and upstream v0.71.0.
+
+| server | client | tcp | udp | http vhost | `useEncryption` + `useCompression` | 256 KiB payload |
+|---|---|---|---|---|---|---|
+| rust-frps | frpc 0.71.0 | ok | ok | ok | ok | ok |
+| frps 0.71.0 | rust-frpc | ok | ok | ok | ok | ok |
+| frps 0.71.0 | rust-frpc (`transport.tls.enable`) | ok | ok | ok | ok | ok |
+| rust-frps | rust-frpc | ok | ok | ok | ok | ok |
+| frps 0.71.0 | frpc 0.71.0 (control) | ok | ok | ok | ok | ok |
+
+`stcp`, exercised with the proxy served by one implementation and visited by
+the other, in both directions and against both servers: ok (50/50 checks in
+total).
+
+What that covers: the frame format, the token signature, the AES-128-CFB
+control stream, yamux multiplexing in both roles, the `0x17` TLS negotiation in
+both directions, the work-connection handshake, the work-connection cipher and
+the snappy framed stream, the visitor signature and the secret-key-based
+visitor payload encryption, and `http` virtual host routing.
+
+Not covered yet: `xtcp` and `sudp` visitors, `tcpmux`, proxy groups, bandwidth
+limiting, client side plugins, and the `websocket` / `wss` / `kcp` / `quic`
+transports, none of which are implemented.
+
 ## Roadmap
 
 - [x] **M1 — protocol core**: message model, framing, token auth, AES-128-CFB
@@ -212,6 +241,9 @@ kind of bug.
   - [x] local service health checks with the register/withdraw cycle;
   - [x] reconnect with exponential backoff and run-id reuse;
   - [x] `frpc --verify`;
+  - [x] verified against the official frp `v0.71.0` release in both directions,
+        including `useEncryption`/`useCompression`, TLS on either side, and
+        `stcp` proxies served by one implementation and visited by the other;
   - [ ] `xtcp` and `sudp` visitors, proxy plugins, client admin UI and store,
         client side bandwidth limiting, the proxy protocol header, and the
         `websocket` / `wss` / `kcp` / `quic` transports.
@@ -221,13 +253,10 @@ kind of bug.
 - [ ] **M5 — extended transports**: KCP, QUIC, wire protocol v2 (AEAD
       handshake), OIDC auth, SSH tunnel gateway.
 
-CI runs the Rust peers against each other, which is what catches regressions in
-the parts of the protocol where both sides are ours. Wire compatibility with
-upstream frp is derived from the upstream v0.71.0 sources — frame layout, token
-and visitor signatures, cipher and compression choices, control-connection
-encryption, TLS first byte, yamux framing — and the next verification step is to
-run a Rust peer against an upstream frp binary of the same version, in both
-directions.
+CI runs the Rust peers against each other, which catches regressions where both
+sides are ours. Compatibility with upstream is verified separately against a
+real frp release — see **Wire compatibility** below — because a detail both Rust
+peers get wrong the same way is invisible to any self contained test.
 
 ## License and attribution
 

@@ -35,6 +35,7 @@ TOKEN = "interop-token"
 LOCAL_TCP = 19001
 LOCAL_UDP = 19002
 LOCAL_HTTP = 19003
+LOCAL_SECURE = 19004
 
 results = []
 
@@ -137,12 +138,18 @@ def http_echo(port, stop):
 # ---------------------------------------------------------------------- processes
 
 
+def safe_name(label):
+    """Labels are human readable; filenames must not contain spaces or `>`."""
+    return "".join(c if c.isalnum() or c in "-_." else "_" for c in label)
+
+
 class Node:
     def __init__(self, binary, role, config, label):
-        self.path = os.path.join(WORK, "%s-%s.toml" % (label, role))
+        stem = safe_name(label)
+        self.path = os.path.join(WORK, "%s-%s.toml" % (stem, role))
         with open(self.path, "w", encoding="utf-8") as handle:
             handle.write(config)
-        self.log = os.path.join(WORK, "%s-%s.log" % (label, role))
+        self.log = os.path.join(WORK, "%s-%s.log" % (stem, role))
         self.handle = open(self.log, "wb")
         self.binary = binary
         self.role = role
@@ -201,17 +208,54 @@ def wait_for_port(port, timeout=20.0):
 
 
 def tcp_roundtrip(port, payload=b"hello"):
+    """Sends a payload and reads exactly what the echo service sends back."""
+    expected = b"echo:" + payload
     try:
-        with socket.create_connection(("127.0.0.1", port), timeout=10) as sock:
+        with socket.create_connection(("127.0.0.1", port), timeout=15) as sock:
             sock.sendall(payload)
-            sock.settimeout(10)
-            data = sock.recv(4096)
+            sock.settimeout(15)
+            data = b""
+            while len(data) < len(expected):
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                data += chunk
     except OSError as exc:
         return False, "socket error: %s" % exc
-    if data == b"echo:" + payload:
-        return True, data.decode(errors="replace")
-    return False, "unexpected reply %r" % (data,)
+    if data == expected:
+        return True, "%d bytes echoed" % len(payload) if len(payload) > 64 else data.decode(
+            errors="replace"
+        )
+    return False, "got %d of %d bytes" % (len(data), len(expected))
 
+
+def tcp_bulk_roundtrip(port, size):
+    """Sends `size` bytes and checks every byte comes back."""
+    payload = b"A" * size
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=20) as sock:
+            sock.sendall(payload)
+            sock.settimeout(2)
+            data = b""
+            deadline = time.time() + 25
+            while time.time() < deadline:
+                try:
+                    chunk = sock.recv(65536)
+                except socket.timeout:
+                    if data.replace(b"echo:", b"") == payload:
+                        break
+                    continue
+                if not chunk:
+                    break
+                data += chunk
+                if data.replace(b"echo:", b"") == payload:
+                    break
+    except OSError as exc:
+        return False, "socket error: %s" % exc
+    rebuilt = data.replace(b"echo:", b"")
+    if rebuilt == payload:
+        return True, "%d bytes round tripped" % size
+    return False, "rebuilt %d of %d bytes" % (len(rebuilt), size)
 
 def udp_roundtrip(port, payload=b"hello-udp"):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -263,11 +307,12 @@ def find_binary(directory, name):
     return None
 
 
-def run_pair(frps_exe, frpc_exe, label, base):
+def run_pair(frps_exe, frpc_exe, label, base, client_extra=""):
     ctrl = base
     remote_tcp = base + 1
     remote_udp = base + 2
     vhost = base + 3
+    remote_secure = base + 4
 
     print("")
     print("== %s ==" % label)
@@ -286,7 +331,7 @@ allowPorts = [{ start = %d, end = %d }]
 method = "token"
 token = "%s"
 """
-        % (ctrl, vhost, remote_tcp, remote_udp, TOKEN),
+        % (ctrl, vhost, remote_tcp, remote_secure, TOKEN),
         label,
     ).start()
 
@@ -300,7 +345,7 @@ token = "%s"
         "frpc",
         """serverAddr = "127.0.0.1"
 serverPort = %d
-
+%s
 [auth]
 method = "token"
 token = "%s"
@@ -325,8 +370,30 @@ type = "http"
 localIP = "127.0.0.1"
 localPort = %d
 customDomains = ["web.test"]
+
+# Exercises transport.useEncryption and transport.useCompression, which wrap the
+# work connection with the same cipher and the snappy framed format.
+[[proxies]]
+name = "secure-echo"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = %d
+remotePort = %d
+transport.useEncryption = true
+transport.useCompression = true
 """
-        % (ctrl, TOKEN, LOCAL_TCP, remote_tcp, LOCAL_UDP, remote_udp, LOCAL_HTTP),
+        % (
+            ctrl,
+            client_extra,
+            TOKEN,
+            LOCAL_TCP,
+            remote_tcp,
+            LOCAL_UDP,
+            remote_udp,
+            LOCAL_HTTP,
+            LOCAL_SECURE,
+            remote_secure,
+        ),
         label,
     ).start()
 
@@ -354,7 +421,110 @@ customDomains = ["web.test"]
     ok, detail = http_roundtrip(vhost, "web.test")
     check(label, "http vhost routing", ok, detail)
 
+    ok, detail = tcp_roundtrip(remote_secure, b"encrypted")
+    check(label, "tcp with useEncryption + useCompression", ok, detail)
+
+    # Compression only pays off on a payload bigger than one frame.
+    ok, detail = tcp_bulk_roundtrip(remote_secure, 262144)
+    check(label, "256 KiB over the compressed work connection", ok, detail)
+
     frpc.stop()
+    frps.stop()
+
+
+
+def run_visitor_pair(frps_exe, provider_exe, visitor_exe, label, base):
+    """An stcp proxy served by one implementation and visited by the other."""
+    ctrl = base
+    visitor_port = base + 1
+    secret = "shared-secret"
+
+    print("")
+    print("== %s ==" % label)
+    print("   frps     %s" % frps_exe)
+    print("   provider %s" % provider_exe)
+    print("   visitor  %s" % visitor_exe)
+
+    frps = Node(
+        frps_exe,
+        "frps",
+        """bindAddr = "127.0.0.1"
+bindPort = %d
+
+[auth]
+method = "token"
+token = "%s"
+"""
+        % (ctrl, TOKEN),
+        label,
+    ).start()
+    if not wait_for_port(ctrl):
+        check(label, "server listening", False, frps.tail(15))
+        frps.stop()
+        return
+
+    provider = Node(
+        provider_exe,
+        "frpc",
+        """serverAddr = "127.0.0.1"
+serverPort = %d
+
+[auth]
+method = "token"
+token = "%s"
+
+[[proxies]]
+name = "secret"
+type = "stcp"
+localIP = "127.0.0.1"
+localPort = %d
+secretKey = "%s"
+"""
+        % (ctrl, TOKEN, LOCAL_TCP, secret),
+        label + "-provider",
+    ).start()
+    time.sleep(2.0)
+
+    visitor = Node(
+        visitor_exe,
+        "frpc",
+        """serverAddr = "127.0.0.1"
+serverPort = %d
+
+[auth]
+method = "token"
+token = "%s"
+
+[[visitors]]
+name = "secret-visitor"
+type = "stcp"
+serverName = "secret"
+secretKey = "%s"
+bindAddr = "127.0.0.1"
+bindPort = %d
+"""
+        % (ctrl, TOKEN, secret, visitor_port),
+        label + "-visitor",
+    ).start()
+
+    if not wait_for_port(visitor_port, timeout=25):
+        check(label, "visitor bound its port", False)
+        print("   --- visitor log ---")
+        print("   " + visitor.tail(20).replace("\n", "\n   "))
+        print("   --- provider log ---")
+        print("   " + provider.tail(20).replace("\n", "\n   "))
+        print("   --- frps log ---")
+        print("   " + frps.tail(20).replace("\n", "\n   "))
+    else:
+        check(label, "visitor bound its port", True)
+        ok, detail = tcp_roundtrip(visitor_port, b"through-visitor")
+        check(label, "stcp traffic reaches the provider", ok, detail)
+        if ok:
+            ok2, detail2 = tcp_roundtrip(visitor_port, b"second")
+            check(label, "second visitor connection", ok2, detail2)
+
+    visitor.stop()
+    provider.stop()
     frps.stop()
 
 
@@ -362,6 +532,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--rust", required=True, help="path to the rust-frp binary")
     parser.add_argument("--upstream", required=True, help="frp release directory")
+    parser.add_argument(
+        "--with-visitors",
+        action="store_true",
+        help="also run the stcp visitor combinations",
+    )
     parser.add_argument(
         "--only",
         default="all",
@@ -391,22 +566,43 @@ def main():
         print("WARNING: upstream is not v0.71.0; results may not be meaningful")
 
     stop = threading.Event()
-    for target, port in ((tcp_echo, LOCAL_TCP), (udp_echo, LOCAL_UDP), (http_echo, LOCAL_HTTP)):
+    for target, port in (
+        (tcp_echo, LOCAL_TCP),
+        (udp_echo, LOCAL_UDP),
+        (http_echo, LOCAL_HTTP),
+        (tcp_echo, LOCAL_SECURE),
+    ):
         threading.Thread(target=target, args=(port, stop), daemon=True).start()
     time.sleep(0.4)
 
+    tls_client = "\n[transport.tls]\nenable = true\n"
+    # The upstream client has TLS on by default, so pairing it with our server
+    # already covers "upstream TLS client"; the extra entry covers ours against
+    # the upstream server.
     combos = [
-        ("rust-frps+frpc", rust, up_frpc, 31000),
-        ("frps+rust-frpc", up_frps, rust, 31100),
-        ("rust-frps+rust-frpc", rust, rust, 31200),
-        ("frps+frpc", up_frps, up_frpc, 31300),
+        ("rust-frps+frpc", rust, up_frpc, 31000, ""),
+        ("frps+rust-frpc", up_frps, rust, 31100, ""),
+        ("rust-frps+rust-frpc", rust, rust, 31200, ""),
+        ("frps+frpc", up_frps, up_frpc, 31300, ""),
+        ("frps+rust-frpc+tls", up_frps, rust, 31400, tls_client),
     ]
     wanted = args.only.split(",")
     try:
-        for label, frps_exe, frpc_exe, base in combos:
+        for label, frps_exe, frpc_exe, base, extra in combos:
             if args.only != "all" and label not in wanted:
                 continue
-            run_pair(frps_exe, frpc_exe, label, base)
+            run_pair(frps_exe, frpc_exe, label, base, extra)
+        if args.with_visitors:
+            for vlabel, vfrps, vprovider, vvisitor, vbase in [
+                ("stcp rust-frps rust->official", rust, rust, up_frpc, 32000),
+                ("stcp rust-frps official->rust", rust, up_frpc, rust, 32100),
+                ("stcp frps rust->official", up_frps, rust, up_frpc, 32200),
+                ("stcp frps official->rust", up_frps, up_frpc, rust, 32300),
+                ("stcp frps official->official", up_frps, up_frpc, up_frpc, 32400),
+            ]:
+                if args.only != "all" and vlabel not in wanted:
+                    continue
+                run_visitor_pair(vfrps, vprovider, vvisitor, vlabel, vbase)
     finally:
         stop.set()
 
