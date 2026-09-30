@@ -10,7 +10,7 @@
 
 **兼容目标：frp `v0.71.0`。** 目标是与官方 Go 实现**线协议兼容** —— Rust 版 `frpc` 能直接连上游 `frps`，反之亦然。
 
-> 状态：**M1 协议核心、M2 frps、M3 frpc 均已完成**；M4（客户端 Store / Admin UI）与 M5（扩展传输）尚未开始。详见下文「路线图」。
+> 状态：**M1 协议核心、M2 frps、M3 frpc、M4 客户端 Store / Admin API 均已完成**；M5（扩展传输）尚未开始。详见下文「路线图」。
 
 ### 线协议对照
 
@@ -183,7 +183,32 @@ python3 tests/interop/plugins.py \
 最后这一点不是装饰。TLS 终结类插件的那道「请求被误导」校验在本项目里是缺失的：
 没有它，一个 SNI 与 Host 不匹配的请求会被正常服务而不是被拒绝，而单元测试与端到端测试都没有察觉。
 更早的时候，AES 密钥的盐错了整整一个里程碑 —— 170 个单元测试、13 项端到端检查全部通过，
-因为两端错得一模一样。现在这两层都在 CI 里。
+因为两端错得一模一样。再往前，`store.add_proxy` 在持锁状态下调用 `save()`，`save()` 又回头去
+锁同一把 `std::sync::Mutex`，整套 CRUD 自死锁 —— 单元测试里 `a_store_survives_a_reopen`
+直接 300 秒超时。现在这些都在 CI 里。
+
+### 客户端 Admin 与 Store
+
+`[webServer]` 提供一个 JSON 接口，配 `[store] path` 后会启用 proxy / visitor 的
+CRUD 端点。Basic Auth 由 `user` + `password` 启用，二者皆空时直接放行。错误响应
+逐字节复刻上游 `GeneralResponse` 的形状（包括它没写 `json` tag 这一怪癖），即
+`{"Code":400,"Msg":"..."}`。
+
+| 当前接口 | 方法 | 行为 |
+| --- | --- | --- |
+| `/healthz` | GET | 免鉴权 |
+| `/api/status` | GET | 按类型分组、键按名排序 |
+| `/api/config` | GET / PUT | 读写原始配置文件 |
+| `/api/reload` | GET | 重读配置文件并重建控制会话 |
+| `/api/stop` | POST | 终止整个进程 |
+| `/api/proxy/{name}/config` | GET | 给出该代理的扁平 JSON |
+| `/api/visitor/{name}/config` | GET | 同上 |
+| `/api/store/proxies` 与 `/api/store/visitors` | GET / POST | 列出、添加 |
+| `/api/store/proxies/{name}` 与 `/api/store/visitors/{name}` | GET / PUT / DELETE | 逐项读写 |
+
+`[store]` 文件是扁平 `{"proxies":[<扁平代理>], "visitors":[<扁平 visitor>]}`，
+按名字排序后**原子**写入（临时文件 + rename）。一条 disabled 的 entry 会保留在文件里
+但不会下发到控制会话。
 
 ### 线协议兼容性
 
@@ -256,9 +281,10 @@ work 连接握手、work 连接加密与 snappy framed 流、visitor 签名与�
         `http2https`、`https2http`、`https2https`、`tls2raw`；
   - [x] 插件行为通过 `tests/interop/plugins.py` 与官方发行包对照验证：十一个场景 × 四组组合，
         逐一与实时基线比对；
-  - [ ] `xtcp` 与 `sudp` visitor、`virtual_net` 插件、客户端 Admin UI 与 Store、
-        客户端侧带宽限制、proxy protocol 头，以及 `websocket` / `wss` / `kcp` / `quic` 传输。
-- [ ] **M4 — Store**：客户端 Admin UI 与持久化代理配置。
+  - [ ] `xtcp` 与 `sudp` visitor、`virtual_net` 插件、客户端侧带宽限制、
+        proxy protocol 头，以及 `websocket` / `wss` / `kcp` / `quic` 传输。
+- [x] **M4 — Store / Admin API**：`[store]` 持久化 JSON、`[webServer]` 的 JSON API
+        与 Basic Auth、热重载（重建控制会话）。已纳入差分验证。
 - [ ] **M5 — 扩展传输**：KCP、QUIC、线协议 v2（AEAD 握手）、OIDC 认证、SSH 隧道网关。
 
 ### 插件
@@ -325,8 +351,8 @@ that exposes services behind NAT or a firewall to the public internet.
 with the reference Go implementation, so a Rust `frpc` can talk to an upstream `frps`
 and vice versa.
 
-> Status: **milestones 1 (protocol core), 2 (frps) and 3 (frpc) are complete**; M4
-> (client store and admin UI) and M5 (extended transports) have not started. See
+> Status: **milestones 1 (protocol core), 2 (frps), 3 (frpc) and 4 (store /
+> admin API) are complete**; M5 (extended transports) has not started. See
 > [Roadmap](#roadmap).
 
 ### Wire protocol reference
@@ -494,6 +520,9 @@ python3 tests/interop/interop.py \
 python3 tests/interop/plugins.py \
     --rust target/release/rust-frp \
     --upstream /path/to/frp_0.71.0_linux_amd64
+python3 tests/interop/admin_api.py \
+    --rust target/release/rust-frp \
+    --upstream /path/to/frp_0.71.0_linux_amd64
 ```
 
 The unit tests cover the protocol layer, the crypto streams, the routers and
@@ -518,7 +547,35 @@ TLS-terminating plugins perform was missing here; without it, a request whose
 SNI did not match its Host was served instead of refused, and nothing in the
 unit or e2e suites noticed. Earlier, the AES key salt was wrong for a whole
 milestone — 170 unit tests and 13 end-to-end checks passed, because both sides
-were wrong in the same way. Both are in CI now.
+were wrong in the same way. Before that, `store.add_proxy` called `save()`
+while holding the per-collection `std::sync::Mutex`, which then re-locked the
+same mutex inside `save()` — the entire CRUD was unreachable and the reopen
+test brought a 300 s timeout. All three are in CI now.
+
+### Client admin and store
+
+The `[webServer]` block exposes a JSON interface; combined with a `[store]
+path`, it also exposes proxy and visitor CRUD. Basic Auth is enabled by
+setting `user` and `password`; with both empty it is skipped. The error
+response reproduces the upstream `GeneralResponse` shape exactly (including
+its missing JSON tags), so an error serialises to `{"Code":400,"Msg":"..."}`.
+
+| Endpoint | Method | What it does |
+| --- | --- | --- |
+| `/healthz` | GET | unauthenticated |
+| `/api/status` | GET | grouped by type, entries sorted by name |
+| `/api/config` | GET / PUT | read or replace the raw config file |
+| `/api/reload` | GET | re-read the config file and rebuild the control session |
+| `/api/stop` | POST | terminate the whole process |
+| `/api/proxy/{name}/config` | GET | the proxy's flat JSON definition |
+| `/api/visitor/{name}/config` | GET | same for a visitor |
+| `/api/store/proxies` and `/api/store/visitors` | GET / POST | list / add |
+| `/api/store/proxies/{name}` and `/api/store/visitors/{name}` | GET / PUT / DELETE | per-entry CRUD |
+
+The `[store]` file is a flat `{"proxies":[<flat proxy>], "visitors":[<flat
+visitor>]}`, sorted by name and written **atomically** (temp file + rename).
+A disabled entry stays in the file but is not delivered to the control
+session.
 
 ### Wire compatibility
 
@@ -544,7 +601,17 @@ Client plugins, from `tests/interop/plugins.py`, the same four pairs and 27
 checks each: ok (141/141 in total). The scenarios are `http2http`, `http2https`,
 `https2http`, `https2https`, `tls2raw`, `static_file` (plain and with
 credentials), `socks5`, `http_proxy` (plain and with credentials), and the
-`https` vhost shape of `https2http`. What they pin down beyond "it works":
+`https` vhost shape of `https2http`.
+
+Client admin API, from `tests/interop/admin_api.py`: both peers run with
+`[webServer]`, and the script walks every endpoint -- `/healthz`,
+`/api/status`, `/api/reload`, `/api/config`, `/api/proxy/{name}/config`,
+`/api/visitor/{name}/config`, plus the store CRUD on `/api/store/proxies` and
+`/api/store/visitors` once the store is enabled, plus Basic Auth success /
+failure and the `WWW-Authenticate` header. Every response is compared field by
+field against a live baseline recorded from official `frpc 0.71.0`. Error
+responses are asserted to match the upstream `GeneralResponse` shape
+`{"Code":N,"Msg":"..."}`. What it pins down beyond "it works":
 
 - `http2http` drops the inbound `X-Forwarded-*`, because `httputil.ReverseProxy`
   removes them before `Rewrite` runs and this rewrite does not put them back;
@@ -610,11 +677,13 @@ are implemented.
   - [x] plugin behaviour verified against the official release with
         `tests/interop/plugins.py`, which runs eleven scenarios against four
         pairs of binaries and compares each to a live baseline;
-  - [ ] `xtcp` and `sudp` visitors, the `virtual_net` plugin, client admin UI
-        and store, client side bandwidth limiting, the proxy protocol header,
-        and the `websocket` / `wss` / `kcp` / `quic` transports.
-- [ ] **M4 — store**: client admin UI and persistent proxy store.
-- [ ] **M5 — extended transports**: KCP, QUIC, wire protocol v2 (AEAD
+  - [ ] `xtcp` and `sudp` visitors, the `virtual_net` plugin, client side
+        bandwidth limiting, the proxy protocol header, and the `websocket` /
+        `wss` / `kcp` / `quic` transports.
+- [x] **M4 -- store / admin API**: a `[store]` JSON file, the `[webServer]`
+        JSON API with Basic Auth, and hot reload (rebuilds the control
+        session). Covered by the admin-API differential.
+- [ ] **M5 -- extended transports**: KCP, QUIC, wire protocol v2 (AEAD
       handshake), OIDC auth, SSH tunnel gateway.
 
 ### Plugins
