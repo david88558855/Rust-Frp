@@ -87,6 +87,69 @@ The virtual host ports only route; they need no certificate of their own.
 `vhostHTTPPort` serves `http` proxies by `Host`/location and `vhostHTTPSPort`
 serves `https` proxies by SNI, forwarding the TLS stream untouched.
 
+## Running the client
+
+```toml
+# frpc.toml
+serverAddr = "127.0.0.1"
+serverPort = 7000
+
+[auth]
+method = "token"
+token = "change-me"
+
+# Directories of extra proxy definitions can be pulled in with includes.
+includes = ["./confd/*.toml"]
+
+[[proxies]]
+name = "ssh"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 22
+remotePort = 6000
+
+[[proxies]]
+name = "web"
+type = "http"
+localPort = 8080
+customDomains = ["web.example.com"]
+
+[[proxies]]
+name = "dns"
+type = "udp"
+localPort = 53
+remotePort = 6000
+
+# Only reachable from another frpc running a matching visitor.
+[[proxies]]
+name = "secret"
+type = "stcp"
+localPort = 22
+secretKey = "shared-with-the-visitor"
+
+[[visitors]]
+name = "secret-visitor"
+type = "stcp"
+serverName = "secret"
+secretKey = "shared-with-the-visitor"
+bindPort = 9000
+```
+
+```bash
+./target/release/rust-frp frpc --verify -c ./frpc.toml   # validate only
+./target/release/rust-frp frpc -c ./frpc.toml            # run
+```
+
+`transport.tcpMux` defaults to on, matching upstream, and multiplexes the
+control connection and every work connection over one socket using yamux.
+`transport.tls.enable = true` wraps the control connection in TLS; the
+obfuscated first byte behaviour and the "no `trustedCaFile` means accept any
+certificate" rule are both reproduced, so a stock frps works out of the box.
+
+`transport.protocol` accepts only `tcp` for now; `websocket`, `wss`, `kcp`
+and `quic`, wire protocol `v2`, and the `xtcp`/`sudp` visitors are rejected at
+configuration load time rather than silently misbehaving.
+
 ## Roadmap
 
 - [x] **M1 — protocol core**: message model, framing, token auth, AES-128-CFB
@@ -105,9 +168,22 @@ serves `https` proxies by SNI, forwarding the TLS stream untouched.
         so TLS terminates end to end at the backend;
   - [x] dashboard, JSON admin API, Prometheus endpoint;
   - [ ] `tcpmux`, `xtcp` NAT hole punching, proxy groups, bandwidth limiting.
-- [ ] **M3 — frpc**: config loading (TOML/YAML/JSON + `includes`), connector
-      (TCP/TLS/WebSocket), proxy managers, STCP/XTCP visitors, health checks,
-      `reload` / `verify` / `status` / `stop`.
+- [x] **M3 — frpc**
+  - [x] configuration loading (TOML/YAML/JSON + `includes`, `start` whitelist,
+        duplicate name rejection);
+  - [x] connector: TCP with optional TLS (custom `0x17` first byte), and the
+        yamux session that `transport.tcpMux` installs on both peers by default;
+  - [x] control session: login, encrypted control stream, heartbeats,
+        `NewProxy` registration, `ReqWorkConn` → `NewWorkConn` → `StartWorkConn`;
+  - [x] `tcp`, `http`, `https`, `stcp`, `tcpmux` proxies (the general TCP path),
+        `udp` and `sudp` over a framed UDP work connection;
+  - [x] `stcp` visitor;
+  - [x] local service health checks with the register/withdraw cycle;
+  - [x] reconnect with exponential backoff and run-id reuse;
+  - [x] `frpc --verify`;
+  - [ ] `xtcp` and `sudp` visitors, proxy plugins, client admin UI and store,
+        client side bandwidth limiting, the proxy protocol header, and the
+        `websocket` / `wss` / `kcp` / `quic` transports.
 - [ ] **M4 — plugins & store**: `unix_domain_socket`, `http_proxy`, `socks5`,
       `static_file`, `https2http`, `http2https`, `https2https`; client admin UI
       and persistent proxy store.

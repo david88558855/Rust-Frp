@@ -12,7 +12,6 @@ use frp_core::codec::write_msg;
 use frp_core::msg::{Message, NewProxy, StartWorkConn};
 use frp_core::transport::{ServerConn, FRP_TLS_HEAD_BYTE};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::TcpStream;
 use tokio::sync::oneshot;
 
 use crate::util::unix_now;

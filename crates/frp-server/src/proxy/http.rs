@@ -23,7 +23,6 @@ use hyper::header::{HeaderName, HeaderValue, HOST};
 use hyper::{Method, Request, Response, StatusCode, Version};
 use hyper_util::rt::TokioIo;
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 

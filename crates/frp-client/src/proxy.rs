@@ -24,6 +24,7 @@ use frp_core::config::proxy::ProxyConfig;
 use frp_core::crypto::stream::WorkConnStream;
 use frp_core::msg::{Message, StartWorkConn, UdpAddrJson, UdpPacket};
 use frp_core::transport::ClientConn;
+use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{mpsc, Notify};
 use tokio_util::sync::CancellationToken;
@@ -237,6 +238,7 @@ impl UdpProxy {
         });
 
         let heartbeat_cancel = cancel.clone();
+        let heartbeat_tx = to_server_tx.clone();
         tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -245,7 +247,7 @@ impl UdpProxy {
                 }
                 // Signed heartbeats are not required on a work connection;
                 // upstream sends an empty Ping here.
-                if to_server_tx
+                if heartbeat_tx
                     .send(Message::Ping(frp_core::msg::Ping {
                         privilege_key: String::new(),
                         timestamp: 0,
@@ -346,12 +348,15 @@ impl UdpForwarder {
         let cancel = self.cancel.clone();
         let packet_size = self.packet_size;
         let alive_task = alive.clone();
+        // The reader task needs its own Arc handle: an `async move` block owns
+        // what it touches, so borrowing the caller's binding is not possible.
+        let reader_socket = socket.clone();
         tokio::spawn(async move {
             let mut buf = vec![0u8; packet_size.max(512)];
             loop {
                 let read = tokio::select! {
                     _ = cancel.cancelled() => break,
-                    result = tokio::time::timeout(UDP_PEER_IDLE_TIMEOUT, socket.recv(&mut buf)) => result,
+                    result = tokio::time::timeout(UDP_PEER_IDLE_TIMEOUT, reader_socket.recv(&mut buf)) => result,
                 };
                 match read {
                     Err(_) => break,

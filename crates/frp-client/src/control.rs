@@ -63,7 +63,7 @@ pub fn build_login(
         timestamp,
         run_id: previous_run_id.to_string(),
         client_id: cfg.client_id.clone(),
-        metas: cfg.metas.clone(),
+        metas: cfg.metadatas.clone(),
         client_spec: Default::default(),
         pool_count: cfg.transport.pool_count,
     }

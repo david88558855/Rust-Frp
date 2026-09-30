@@ -11,8 +11,7 @@ use std::sync::Mutex;
 
 use anyhow::{anyhow, Result};
 use frp_core::crypto::auth::constant_time_eq;
-use frp_core::transport::{ServerConn, ServerStream};
-use tokio::net::TcpStream;
+use frp_core::transport::ServerConn;
 use tokio::sync::mpsc;
 
 /// An admitted visitor connection.
@@ -147,7 +146,8 @@ impl VisitorRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use frp_core::transport::PrefixedStream;
+    use frp_core::transport::{PrefixedStream, ServerStream};
+    use tokio::net::TcpStream;
 
     /// Builds a `VisitorConn` around a real loopback socket pair, inside the
     /// test runtime so the stream can register with the reactor.
