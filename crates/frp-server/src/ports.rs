@@ -59,9 +59,7 @@ impl PortManager {
 
         if requested > 0 {
             if !self.is_allowed(requested) {
-                return Err(anyhow!(
-                    "port {requested} is not in the allowed port range"
-                ));
+                return Err(anyhow!("port {requested} is not in the allowed port range"));
             }
             let mut used = self.used.lock().unwrap();
             if used.contains_key(&requested) {
@@ -164,7 +162,10 @@ impl PortManager {
             }
         }
         if candidates.is_empty() {
-            return Err(anyhow!("no free {} port in the allowed range", self.transport));
+            return Err(anyhow!(
+                "no free {} port in the allowed range",
+                self.transport
+            ));
         }
         let idx = fastrand_index(candidates.len());
         let chosen = candidates[idx];
@@ -176,7 +177,10 @@ impl PortManager {
                 return Ok(port);
             }
         }
-        Err(anyhow!("no bindable {} port in the allowed range", self.transport))
+        Err(anyhow!(
+            "no bindable {} port in the allowed range",
+            self.transport
+        ))
     }
 
     fn can_bind(&self, port: i32) -> bool {

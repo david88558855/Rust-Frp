@@ -23,9 +23,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use frp_core::crypto::stream::EncryptedStream;
 use frp_core::crypto::{auth, WorkConnStream};
-use frp_core::msg::{
-    CloseProxy, Login, Message, NewProxy, NewProxyResp, Ping, Pong, ReqWorkConn,
-};
+use frp_core::msg::{CloseProxy, Login, Message, NewProxy, NewProxyResp, Ping, Pong, ReqWorkConn};
 use frp_core::transport::ServerConn;
 use frp_core::util;
 use tokio::sync::{mpsc, oneshot};
@@ -256,8 +254,13 @@ impl Control {
             return;
         }
         self.shutdown.cancel();
-        let proxies: Vec<Arc<dyn ServerProxy>> =
-            self.proxies.lock().unwrap().drain().map(|(_, p)| p).collect();
+        let proxies: Vec<Arc<dyn ServerProxy>> = self
+            .proxies
+            .lock()
+            .unwrap()
+            .drain()
+            .map(|(_, p)| p)
+            .collect();
         for proxy in proxies {
             proxy.close();
             self.ctx.metrics.close_proxy(proxy.name());

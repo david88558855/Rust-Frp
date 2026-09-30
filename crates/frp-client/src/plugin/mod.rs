@@ -76,20 +76,17 @@ pub fn create(cfg: &PluginConfig) -> Result<Arc<dyn Plugin>> {
         .with_context(|| format!("plugin [{}] options are invalid", cfg.plugin_type()))?;
 
     let plugin: Arc<dyn Plugin> = match cfg {
-        PluginConfig::UnixDomainSocket { unix_path } => Arc::new(
-            unix_domain_socket::UnixDomainSocketPlugin::new(unix_path)?,
-        ),
+        PluginConfig::UnixDomainSocket { unix_path } => {
+            Arc::new(unix_domain_socket::UnixDomainSocketPlugin::new(unix_path)?)
+        }
         PluginConfig::StaticFile {
             local_path,
             strip_prefix,
             http_user,
             http_password,
-        } => static_file::StaticFilePlugin::new(
-            local_path,
-            strip_prefix,
-            http_user,
-            http_password,
-        )?,
+        } => {
+            static_file::StaticFilePlugin::new(local_path, strip_prefix, http_user, http_password)?
+        }
         PluginConfig::Socks5 { username, password } => {
             Arc::new(socks5::Socks5Plugin::new(username, password))
         }
@@ -167,9 +164,7 @@ pub fn create(cfg: &PluginConfig) -> Result<Arc<dyn Plugin>> {
             local_addr,
             crt_path,
             key_path,
-        } => Arc::new(tls2raw::Tls2RawPlugin::new(
-            local_addr, crt_path, key_path,
-        )?),
+        } => Arc::new(tls2raw::Tls2RawPlugin::new(local_addr, crt_path, key_path)?),
         PluginConfig::VirtualNet { .. } => {
             anyhow::bail!("plugin [virtual_net] is not implemented in this build")
         }
@@ -228,22 +223,14 @@ mod tests {
     #[test]
     fn an_empty_credential_pair_disables_the_check() {
         let headers = HeaderMap::new();
-        assert!(basic_auth(
-            &headers,
-            AUTHORIZATION,
-            "",
-            ""
-        ));
+        assert!(basic_auth(&headers, AUTHORIZATION, "", ""));
     }
 
     #[test]
     fn a_correct_pair_is_accepted() {
         let mut headers = HeaderMap::new();
         // "alice:s3cret"
-        headers.insert(
-            AUTHORIZATION,
-            "Basic YWxpY2U6czNjcmV0".parse().unwrap(),
-        );
+        headers.insert(AUTHORIZATION, "Basic YWxpY2U6czNjcmV0".parse().unwrap());
         assert!(basic_auth(&headers, AUTHORIZATION, "alice", "s3cret"));
         assert!(!basic_auth(&headers, AUTHORIZATION, "alice", "wrong"));
         assert!(!basic_auth(&headers, AUTHORIZATION, "bob", "s3cret"));
@@ -270,7 +257,12 @@ mod tests {
             "a",
             "b"
         ));
-        assert!(!basic_auth(&headers("Bearer token"), AUTHORIZATION, "a", "b"));
+        assert!(!basic_auth(
+            &headers("Bearer token"),
+            AUTHORIZATION,
+            "a",
+            "b"
+        ));
         // A decoded value without a colon.
         assert!(!basic_auth(
             &headers("Basic YWxpY2U="),

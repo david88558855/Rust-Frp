@@ -153,7 +153,8 @@ impl HandlerState {
         if !meta.is_file() {
             return not_found();
         }
-        self.serve_file(&target, meta.len(), range_header(&req)).await
+        self.serve_file(&target, meta.len(), range_header(&req))
+            .await
     }
 
     /// Applies the optional basic auth, comparing in constant time like
@@ -208,9 +209,7 @@ impl HandlerState {
         range: Option<RangeSpec>,
     ) -> Response<RespBody> {
         let (status, start, end) = match range {
-            None | Some(RangeSpec::Unsupported) => {
-                (StatusCode::OK, 0, size.saturating_sub(1))
-            }
+            None | Some(RangeSpec::Unsupported) => (StatusCode::OK, 0, size.saturating_sub(1)),
             Some(spec) => match spec.resolve(size) {
                 Some((start, end)) => (StatusCode::PARTIAL_CONTENT, start, end),
                 None => return range_not_satisfiable(size),

@@ -13,8 +13,8 @@ use std::time::Duration;
 use anyhow::{anyhow, Context, Result};
 use frp_core::codec;
 use frp_core::config::client::{StcpVisitorConfig, VisitorConfig};
-use frp_core::crypto::stream::WorkConnStream;
 use frp_core::crypto::auth;
+use frp_core::crypto::stream::WorkConnStream;
 use frp_core::msg::{Message, NewVisitorConn};
 use frp_core::util;
 use tokio::net::{TcpListener, TcpStream};
@@ -143,7 +143,10 @@ impl StcpVisitor {
             ));
         };
         if !resp.error.is_empty() {
-            return Err(anyhow!("the server refused the visitor connection: {}", resp.error));
+            return Err(anyhow!(
+                "the server refused the visitor connection: {}",
+                resp.error
+            ));
         }
 
         // Payload encryption uses the secret key, mirroring upstream

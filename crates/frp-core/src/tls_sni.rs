@@ -87,7 +87,8 @@ where
             if handshake[0] != HANDSHAKE_CLIENT_HELLO {
                 return Err(SniError::NotClientHello(handshake[0]));
             }
-            let body_len = u32::from_be_bytes([0, handshake[1], handshake[2], handshake[3]]) as usize;
+            let body_len =
+                u32::from_be_bytes([0, handshake[1], handshake[2], handshake[3]]) as usize;
             if body_len > MAX_HELLO_SIZE {
                 return Err(SniError::TooLarge);
             }
@@ -220,9 +221,9 @@ impl<'a> Cursor<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use rustls::pki_types::ServerName;
     use rustls::{ClientConfig, RootCertStore};
+    use std::sync::Arc;
     use tokio_rustls::TlsConnector;
 
     fn client_config() -> Arc<ClientConfig> {

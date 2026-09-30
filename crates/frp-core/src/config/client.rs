@@ -369,8 +369,8 @@ impl ClientConfig {
     /// Loads a client configuration from disk, expanding `includes`.
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        let main: ClientConfigFile = load_config(path)
-            .with_context(|| format!("load client config {}", path.display()))?;
+        let main: ClientConfigFile =
+            load_config(path).with_context(|| format!("load client config {}", path.display()))?;
 
         let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
         let mut proxies = main.proxies;
@@ -603,14 +603,13 @@ mod tests {
         for protocol in ["kcp", "quic", "websocket", "wss"] {
             let mut common = ClientCommonConfig::default();
             common.transport.protocol = protocol.into();
-            let err = ClientConfig::from_parts(common, Vec::new(), Vec::new(), Vec::new())
-                .unwrap_err();
+            let err =
+                ClientConfig::from_parts(common, Vec::new(), Vec::new(), Vec::new()).unwrap_err();
             assert!(err.to_string().contains("not implemented"));
         }
         let mut common = ClientCommonConfig::default();
         common.transport.wire_protocol = "v2".into();
-        let err =
-            ClientConfig::from_parts(common, Vec::new(), Vec::new(), Vec::new()).unwrap_err();
+        let err = ClientConfig::from_parts(common, Vec::new(), Vec::new(), Vec::new()).unwrap_err();
         assert!(err.to_string().contains("wireProtocol"));
     }
 
@@ -664,7 +663,10 @@ X-From = "frpc"
         assert_eq!(host_header_rewrite, "rewritten");
         assert_eq!(crt_path, "server.crt");
         assert_eq!(key_path, "server.key");
-        assert_eq!(request_headers.set.get("X-From").map(String::as_str), Some("frpc"));
+        assert_eq!(
+            request_headers.set.get("X-From").map(String::as_str),
+            Some("frpc")
+        );
     }
 
     /// A plugin replaces the local service, so `localPort` must not be required.
@@ -690,7 +692,10 @@ unixPath = "/run/app.sock"
             Vec::new(),
         )
         .unwrap();
-        assert_eq!(cfg.proxies[0].plugin().unwrap().plugin_type(), "unix_domain_socket");
+        assert_eq!(
+            cfg.proxies[0].plugin().unwrap().plugin_type(),
+            "unix_domain_socket"
+        );
     }
 
     #[test]

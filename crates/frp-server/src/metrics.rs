@@ -191,10 +191,7 @@ impl Metrics {
 
         out.push_str("# HELP frp_server_proxy_counts Number of active proxies.\n");
         out.push_str("# TYPE frp_server_proxy_counts gauge\n");
-        out.push_str(&format!(
-            "frp_server_proxy_counts {}\n",
-            snap.proxies.len()
-        ));
+        out.push_str(&format!("frp_server_proxy_counts {}\n", snap.proxies.len()));
 
         out.push_str("# HELP frp_server_cur_conns Current connections.\n");
         out.push_str("# TYPE frp_server_cur_conns gauge\n");
@@ -206,7 +203,10 @@ impl Metrics {
 
         out.push_str("# HELP frp_server_traffic_in Bytes received in total.\n");
         out.push_str("# TYPE frp_server_traffic_in counter\n");
-        out.push_str(&format!("frp_server_traffic_in {}\n", snap.total_traffic_in));
+        out.push_str(&format!(
+            "frp_server_traffic_in {}\n",
+            snap.total_traffic_in
+        ));
 
         out.push_str("# HELP frp_server_traffic_out Bytes sent in total.\n");
         out.push_str("# TYPE frp_server_traffic_out counter\n");
@@ -340,7 +340,9 @@ mod tests {
         let text = m.render_prometheus();
         assert!(text.contains("# TYPE frp_server_client_counts gauge"));
         assert!(text.contains("frp_server_client_counts 1"));
-        assert!(text.contains("frp_server_proxy_status{name=\"p1\",type=\"tcp\",client_id=\"c\"} 1"));
+        assert!(
+            text.contains("frp_server_proxy_status{name=\"p1\",type=\"tcp\",client_id=\"c\"} 1")
+        );
     }
 
     #[test]

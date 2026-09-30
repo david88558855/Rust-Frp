@@ -103,12 +103,7 @@ impl ProxyContext {
         use_encryption: bool,
         use_compression: bool,
     ) -> WorkConnStream<ClientConn> {
-        WorkConnStream::new(
-            conn,
-            self.token.as_bytes(),
-            use_encryption,
-            use_compression,
-        )
+        WorkConnStream::new(conn, self.token.as_bytes(), use_encryption, use_compression)
     }
 
     /// Joins a local service socket with the (already wrapped) work stream.
@@ -338,7 +333,11 @@ impl UdpForwarder {
     }
 
     async fn spawn_peer(&self, remote: std::net::SocketAddr) -> Result<Arc<UdpSocket>> {
-        let bind = if remote.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
+        let bind = if remote.is_ipv4() {
+            "0.0.0.0:0"
+        } else {
+            "[::]:0"
+        };
         let socket = UdpSocket::bind(bind)
             .await
             .context("bind the udp forwarding socket")?;
@@ -502,11 +501,8 @@ impl ProxyWrapper {
         let base = self.cfg.base();
         if base.health_check.is_enabled() && base.local_port > 0 {
             let addr = format!("{}:{}", base.local_ip, base.local_port);
-            let monitor = crate::health::Monitor::new(
-                &base.health_check,
-                addr,
-                self.cancel.clone(),
-            );
+            let monitor =
+                crate::health::Monitor::new(&base.health_check, addr, self.cancel.clone());
             let normal = self.clone();
             let failed = self.clone();
             tokio::spawn(async move {
@@ -543,8 +539,12 @@ impl ProxyWrapper {
                     let mut state = self.state.lock().unwrap();
                     let due = match state.phase {
                         Phase::New | Phase::CheckFailed => true,
-                        Phase::WaitStart => now.duration_since(state.last_send_start) > WAIT_RESPONSE_TIMEOUT,
-                        Phase::StartErr => now.duration_since(state.last_start_err) > START_ERR_TIMEOUT,
+                        Phase::WaitStart => {
+                            now.duration_since(state.last_send_start) > WAIT_RESPONSE_TIMEOUT
+                        }
+                        Phase::StartErr => {
+                            now.duration_since(state.last_start_err) > START_ERR_TIMEOUT
+                        }
                         Phase::Running | Phase::Closed => false,
                     };
                     if due {
@@ -570,11 +570,12 @@ impl ProxyWrapper {
                 };
                 if withdraw {
                     warn!(proxy = %self.name, "health check failed, withdrawing the proxy");
-                    let _ = self.ctx.out_tx.send(Message::CloseProxy(
-                        frp_core::msg::CloseProxy {
+                    let _ = self
+                        .ctx
+                        .out_tx
+                        .send(Message::CloseProxy(frp_core::msg::CloseProxy {
                             proxy_name: self.wire_name.clone(),
-                        },
-                    ));
+                        }));
                 }
             }
 
@@ -794,8 +795,9 @@ mod tests {
 
     fn fixture(json: &str) -> (Arc<ClientCommonConfig>, Vec<ProxyConfig>) {
         let parsed: ClientConfigFile = serde_json::from_str(json).unwrap();
-        let cfg = ClientConfig::from_parts(parsed.common, parsed.proxies, parsed.visitors, Vec::new())
-            .unwrap();
+        let cfg =
+            ClientConfig::from_parts(parsed.common, parsed.proxies, parsed.visitors, Vec::new())
+                .unwrap();
         (Arc::new(cfg.common), cfg.proxies)
     }
 

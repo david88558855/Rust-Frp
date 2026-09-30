@@ -46,13 +46,11 @@ impl ConfigFormat {
                 serde_json::to_value(value).context("normalise TOML config")
             }
             ConfigFormat::Yaml => {
-                let value: serde_yaml::Value = serde_yaml::from_str(text)
-                    .context("parse YAML config")?;
+                let value: serde_yaml::Value =
+                    serde_yaml::from_str(text).context("parse YAML config")?;
                 serde_json::to_value(value).context("normalise YAML config")
             }
-            ConfigFormat::Json => {
-                serde_json::from_str(text).context("parse JSON config")
-            }
+            ConfigFormat::Json => serde_json::from_str(text).context("parse JSON config"),
         }
     }
 }
@@ -91,7 +89,9 @@ fn resolve_action(action: &str) -> Result<String> {
         return std::env::var(name)
             .with_context(|| format!("environment variable {name} referenced by config is unset"));
     }
-    Err(anyhow!("unsupported config template action: {{{{{action}}}}}"))
+    Err(anyhow!(
+        "unsupported config template action: {{{{{action}}}}}"
+    ))
 }
 
 /// Parses already rendered configuration text.
@@ -221,8 +221,7 @@ port = 7500
 
     #[test]
     fn toml_and_json_agree() {
-        let from_toml: ServerConfig =
-            load_config_str(TOML_SAMPLE, ConfigFormat::Toml).unwrap();
+        let from_toml: ServerConfig = load_config_str(TOML_SAMPLE, ConfigFormat::Toml).unwrap();
         let json = serde_json::to_string(&from_toml).unwrap();
         let from_json: ServerConfig = load_config_str(&json, ConfigFormat::Json).unwrap();
         assert_eq!(from_toml, from_json);
@@ -253,8 +252,7 @@ webServer:
   port: 7500
 "#;
         let from_yaml: ServerConfig = load_config_str(yaml, ConfigFormat::Yaml).unwrap();
-        let from_toml: ServerConfig =
-            load_config_str(TOML_SAMPLE, ConfigFormat::Toml).unwrap();
+        let from_toml: ServerConfig = load_config_str(TOML_SAMPLE, ConfigFormat::Toml).unwrap();
         assert_eq!(from_yaml, from_toml);
     }
 

@@ -152,7 +152,10 @@ impl ProxyBaseConfig {
                 .map_err(|e| format!("plugin {}: {e}", plugin.plugin_type())),
             None => {
                 if self.local_port <= 0 || self.local_port > 65535 {
-                    return Err(format!("localPort: invalid port number: {}", self.local_port));
+                    return Err(format!(
+                        "localPort: invalid port number: {}",
+                        self.local_port
+                    ));
                 }
                 Ok(())
             }
@@ -464,7 +467,10 @@ mod tests {
                 assert_eq!(c.http_user, "u");
                 assert_eq!(c.host_header_rewrite, "internal");
                 assert_eq!(c.route_by_http_user, "bob");
-                assert_eq!(c.request_headers.set.get("X-A").map(String::as_str), Some("1"));
+                assert_eq!(
+                    c.request_headers.set.get("X-A").map(String::as_str),
+                    Some("1")
+                );
             }
             other => panic!("unexpected {other:?}"),
         }

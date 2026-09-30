@@ -120,11 +120,8 @@ impl BridgePlugin {
             kind,
             target: Target {
                 addr: opts.local_addr.clone(),
-                client_config: matches!(
-                    kind.backend_scheme(),
-                    "https"
-                )
-                .then(Target::tls_client_config),
+                client_config: matches!(kind.backend_scheme(), "https")
+                    .then(Target::tls_client_config),
             },
             local_addr: opts.local_addr,
             host_header_rewrite: opts.host_header_rewrite,
@@ -143,18 +140,17 @@ impl BridgePlugin {
         // handler holds a weak reference: keeping an `Arc` here would form a
         // cycle and pin the plugin in memory for the life of the process.
         let weak = Arc::downgrade(&plugin);
-        let handler: Handler =
-            Arc::new(
-                move |req: Request<Incoming>, peer: Option<SocketAddr>, sni: Option<String>| {
-                    let weak = weak.clone();
-                    Box::pin(async move {
-                        match weak.upgrade() {
-                            Some(plugin) => plugin.serve(req, peer, sni).await,
-                            None => service_unavailable(),
-                        }
-                    })
-                },
-            );
+        let handler: Handler = Arc::new(
+            move |req: Request<Incoming>, peer: Option<SocketAddr>, sni: Option<String>| {
+                let weak = weak.clone();
+                Box::pin(async move {
+                    match weak.upgrade() {
+                        Some(plugin) => plugin.serve(req, peer, sni).await,
+                        None => service_unavailable(),
+                    }
+                })
+            },
+        );
         let bridge = Bridge::new(handler, acceptor, http2, plugin.cancel.clone());
         let _ = plugin.bridge.set(bridge);
         Ok(plugin)
@@ -246,7 +242,12 @@ impl BridgePlugin {
         // where to dial, while the wire carries only the path. `forward` does
         // that reduction, so building the full URL here is what makes the two
         // halves line up with upstream.
-        let uri = format!("{}://{}{}", self.kind.backend_scheme(), self.local_addr, path_and_query);
+        let uri = format!(
+            "{}://{}{}",
+            self.kind.backend_scheme(),
+            self.local_addr,
+            path_and_query
+        );
         match uri.parse() {
             Ok(uri) => parts.uri = uri,
             Err(e) => {
@@ -528,7 +529,10 @@ mod tests {
         assert!(is_misdirected(Some("front.example"), ""));
         // Only an SNI that fails to canonicalise disables the check -- an
         // unusual spelling, but the one upstream lets through.
-        assert!(!is_misdirected(Some("front.example:notaport"), "anything.test"));
+        assert!(!is_misdirected(
+            Some("front.example:notaport"),
+            "anything.test"
+        ));
     }
 
     #[test]

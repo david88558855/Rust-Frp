@@ -148,8 +148,14 @@ mod tests {
 
     #[test]
     fn auth_method_wire_values() {
-        assert_eq!(serde_json::to_string(&AuthMethod::Token).unwrap(), "\"token\"");
-        assert_eq!(serde_json::to_string(&AuthMethod::Oidc).unwrap(), "\"oidc\"");
+        assert_eq!(
+            serde_json::to_string(&AuthMethod::Token).unwrap(),
+            "\"token\""
+        );
+        assert_eq!(
+            serde_json::to_string(&AuthMethod::Oidc).unwrap(),
+            "\"oidc\""
+        );
     }
 
     #[test]

@@ -50,13 +50,7 @@ impl<T> VhostRouter<T> {
 
     /// Registers a route. Returns `false` when the (domain, location, user)
     /// triple is already taken, matching upstream `ErrRouterConfigConflict`.
-    pub fn add(
-        &self,
-        domain: &str,
-        location: &str,
-        http_user: &str,
-        payload: T,
-    ) -> bool {
+    pub fn add(&self, domain: &str, location: &str, http_user: &str, payload: T) -> bool {
         let domain = domain.to_ascii_lowercase();
         let location = normalize_location(location);
         let mut index = self.index.write().unwrap();

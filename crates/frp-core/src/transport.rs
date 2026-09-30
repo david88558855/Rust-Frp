@@ -200,9 +200,7 @@ pub async fn accept_server_stream(
         }
         FirstByte::Plain => {
             if force_tls {
-                return Err(anyhow!(
-                    "non-TLS connection received on a TlsOnly server"
-                ));
+                return Err(anyhow!("non-TLS connection received on a TlsOnly server"));
             }
             Ok(ServerStream::Plain(PrefixedStream::new(
                 sock,
@@ -214,8 +212,8 @@ pub async fn accept_server_stream(
 
 /// Loads a certificate chain from a PEM file.
 pub fn load_certs(path: &str) -> Result<Vec<CertificateDer<'static>>> {
-    let file = std::fs::File::open(path)
-        .with_context(|| format!("open certificate file {path}"))?;
+    let file =
+        std::fs::File::open(path).with_context(|| format!("open certificate file {path}"))?;
     let mut reader = std::io::BufReader::new(file);
     let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut reader)
         .collect::<Result<Vec<_>, _>>()
@@ -228,8 +226,8 @@ pub fn load_certs(path: &str) -> Result<Vec<CertificateDer<'static>>> {
 
 /// Loads a private key from a PEM file.
 pub fn load_private_key(path: &str) -> Result<PrivateKeyDer<'static>> {
-    let file = std::fs::File::open(path)
-        .with_context(|| format!("open private key file {path}"))?;
+    let file =
+        std::fs::File::open(path).with_context(|| format!("open private key file {path}"))?;
     let mut reader = std::io::BufReader::new(file);
     rustls_pemfile::private_key(&mut reader)
         .with_context(|| format!("parse private key file {path}"))?
@@ -240,12 +238,12 @@ pub fn load_private_key(path: &str) -> Result<PrivateKeyDer<'static>> {
 /// certificate is configured.
 pub fn generate_self_signed() -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
     let names = vec!["localhost".to_string(), "frp".to_string()];
-    let certified = rcgen::generate_simple_self_signed(names)
-        .context("generate self-signed certificate")?;
+    let certified =
+        rcgen::generate_simple_self_signed(names).context("generate self-signed certificate")?;
     let cert = certified.cert.der().clone();
-    let key = PrivateKeyDer::Pkcs8(
-        rustls::pki_types::PrivatePkcs8KeyDer::from(certified.key_pair.serialize_der()),
-    );
+    let key = PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
+        certified.key_pair.serialize_der(),
+    ));
     Ok((vec![cert], key))
 }
 
@@ -395,9 +393,7 @@ impl rustls::client::danger::ServerCertVerifier for AcceptAnyServerCert {
     }
 
     fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        self.0
-            .signature_verification_algorithms
-            .supported_schemes()
+        self.0.signature_verification_algorithms.supported_schemes()
     }
 }
 
@@ -421,12 +417,9 @@ pub fn build_client_tls_config(tls: &TlsClientConfig) -> Result<Arc<rustls::Clie
             for cert in load_certs(&tls.trusted_ca_file)? {
                 roots.add(cert).context("add trusted CA certificate")?;
             }
-            rustls::client::WebPkiServerVerifier::builder_with_provider(
-                Arc::new(roots),
-                provider,
-            )
-            .build()
-            .context("build server certificate verifier")?
+            rustls::client::WebPkiServerVerifier::builder_with_provider(Arc::new(roots), provider)
+                .build()
+                .context("build server certificate verifier")?
         };
 
     let builder = builder
@@ -435,7 +428,10 @@ pub fn build_client_tls_config(tls: &TlsClientConfig) -> Result<Arc<rustls::Clie
 
     let config = if !tls.cert_file.is_empty() && !tls.key_file.is_empty() {
         builder
-            .with_client_auth_cert(load_certs(&tls.cert_file)?, load_private_key(&tls.key_file)?)
+            .with_client_auth_cert(
+                load_certs(&tls.cert_file)?,
+                load_private_key(&tls.key_file)?,
+            )
             .context("install client certificate")?
     } else {
         builder.with_no_client_auth()
@@ -765,14 +761,10 @@ mod tests {
             enable: Some(true),
             ..Default::default()
         };
-        let mut stream = connect_server_stream(
-            &addr.to_string(),
-            &tls,
-            "",
-            Duration::from_secs(10),
-        )
-        .await
-        .unwrap();
+        let mut stream =
+            connect_server_stream(&addr.to_string(), &tls, "", Duration::from_secs(10))
+                .await
+                .unwrap();
         assert_eq!(stream.kind(), "tls");
         stream.write_all(b"ping").await.unwrap();
         stream.flush().await.unwrap();

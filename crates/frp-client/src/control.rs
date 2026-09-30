@@ -47,11 +47,7 @@ pub struct SessionHandshake {
 }
 
 /// Builds the `Login` message the way upstream `controlSessionDialer` does.
-pub fn build_login(
-    cfg: &ClientCommonConfig,
-    token: &str,
-    previous_run_id: &str,
-) -> Login {
+pub fn build_login(cfg: &ClientCommonConfig, token: &str, previous_run_id: &str) -> Login {
     let timestamp = util::now_unix();
     Login {
         version: frp_core::CLIENT_VERSION.to_string(),
@@ -172,7 +168,10 @@ impl Control {
             ));
         };
         if !start.error.is_empty() {
-            return Err(anyhow!("server refused the work connection: {}", start.error));
+            return Err(anyhow!(
+                "server refused the work connection: {}",
+                start.error
+            ));
         }
         Ok((conn, start))
     }

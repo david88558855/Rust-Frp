@@ -214,10 +214,7 @@ impl Store {
                 .cloned()
                 .ok_or_else(|| StoreError::NotFound(KIND_VISITOR, name.clone()))?
         };
-        self.visitors
-            .lock()
-            .unwrap()
-            .insert(name.clone(), visitor);
+        self.visitors.lock().unwrap().insert(name.clone(), visitor);
         if let Err(e) = self.save() {
             self.visitors.lock().unwrap().insert(name, previous);
             return Err(StoreError::Persist(e.to_string()));
@@ -282,7 +279,8 @@ mod tests {
     use frp_core::config::ProxyBaseConfig;
 
     fn tmp_store(name: &str) -> Store {
-        let dir = std::env::temp_dir().join(format!("rust-frp-store-{}-{}", name, std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("rust-frp-store-{}-{}", name, std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         Store::open(dir.join("db.json")).unwrap()
     }
@@ -340,10 +338,8 @@ mod tests {
 
     #[test]
     fn a_store_survives_a_reopen() {
-        let dir = std::env::temp_dir().join(format!(
-            "rust-frp-store-reopen-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("rust-frp-store-reopen-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("db.json");
 

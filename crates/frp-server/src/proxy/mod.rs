@@ -252,7 +252,10 @@ mod tests {
         );
         assert_eq!(
             spec.request_headers,
-            vec![("X-A".to_string(), "1".to_string()), ("X-B".to_string(), "2".to_string())]
+            vec![
+                ("X-A".to_string(), "1".to_string()),
+                ("X-B".to_string(), "2".to_string())
+            ]
         );
     }
 

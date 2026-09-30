@@ -126,7 +126,8 @@ impl Monitor {
         if self.url.is_empty() {
             return Ok(());
         }
-        let (authority, path) = split_url(&self.url).ok_or_else(|| "bad health check url".to_string())?;
+        let (authority, path) =
+            split_url(&self.url).ok_or_else(|| "bad health check url".to_string())?;
         let mut stream = TcpStream::connect(authority)
             .await
             .map_err(|e| e.to_string())?;

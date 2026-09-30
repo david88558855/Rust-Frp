@@ -344,12 +344,8 @@ impl StreamInner {
             self.shared.remove_stream(self.id);
         }
         if send_fin {
-            self.shared.send_control(
-                frame_type::WINDOW_UPDATE,
-                frame_flags::FIN,
-                self.id,
-                0,
-            );
+            self.shared
+                .send_control(frame_type::WINDOW_UPDATE, frame_flags::FIN, self.id, 0);
         }
         self.read_waker.wake();
         self.write_waker.wake();
@@ -531,9 +527,10 @@ impl AsyncWrite for Stream {
 
             let n = (window as usize).min(buf.len());
             let flags = inner.take_send_flags();
-            inner
-                .shared
-                .send_frame(encode_header(frame_type::DATA, flags, inner.id, n as u32), buf[..n].to_vec());
+            inner.shared.send_frame(
+                encode_header(frame_type::DATA, flags, inner.id, n as u32),
+                buf[..n].to_vec(),
+            );
             inner.send_window.fetch_sub(n as u32, Ordering::SeqCst);
             return Poll::Ready(Ok(n));
         }
@@ -819,12 +816,7 @@ fn handle_stream_frame(
 
 fn incoming_stream(shared: &Arc<Shared>, stream_id: u32) -> Result<(), ()> {
     if shared.local_go_away.load(Ordering::SeqCst) {
-        shared.send_control(
-            frame_type::WINDOW_UPDATE,
-            frame_flags::RST,
-            stream_id,
-            0,
-        );
+        shared.send_control(frame_type::WINDOW_UPDATE, frame_flags::RST, stream_id, 0);
         return Ok(());
     }
 
@@ -843,16 +835,9 @@ fn incoming_stream(shared: &Arc<Shared>, stream_id: u32) -> Result<(), ()> {
 
     let backlog = shared.accept_backlog_count.fetch_add(1, Ordering::SeqCst) + 1;
     if backlog > shared.accept_backlog || shared.accept_tx.send(inner).is_err() {
-        shared
-            .accept_backlog_count
-            .fetch_sub(1, Ordering::SeqCst);
+        shared.accept_backlog_count.fetch_sub(1, Ordering::SeqCst);
         shared.remove_stream(stream_id);
-        shared.send_control(
-            frame_type::WINDOW_UPDATE,
-            frame_flags::RST,
-            stream_id,
-            0,
-        );
+        shared.send_control(frame_type::WINDOW_UPDATE, frame_flags::RST, stream_id, 0);
         return Ok(());
     }
     Ok(())
@@ -947,10 +932,7 @@ mod tests {
         peer.read_exact(&mut header).await.unwrap();
         assert_eq!(header[0], PROTO_VERSION);
         assert_eq!(header[1], frame_type::WINDOW_UPDATE);
-        assert_eq!(
-            u16::from_be_bytes([header[2], header[3]]),
-            frame_flags::SYN
-        );
+        assert_eq!(u16::from_be_bytes([header[2], header[3]]), frame_flags::SYN);
         assert_eq!(
             u32::from_be_bytes([header[4], header[5], header[6], header[7]]),
             1

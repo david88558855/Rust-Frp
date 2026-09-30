@@ -124,12 +124,7 @@ async fn accept_visitors(
 }
 
 impl VisitorProxy {
-    async fn pair(
-        &self,
-        ctl: Arc<Control>,
-        visitor: VisitorConn,
-        datagram: bool,
-    ) -> Result<()> {
+    async fn pair(&self, ctl: Arc<Control>, visitor: VisitorConn, datagram: bool) -> Result<()> {
         let mut work_conn = ctl.get_work_conn(&self.cancel).await?;
         work_conn
             .start(start_work_conn_for(&self.spec, Some(&visitor.remote_addr)))

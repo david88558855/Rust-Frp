@@ -281,7 +281,10 @@ mod tests {
         };
         assert_eq!(local_addr, "127.0.0.1:8080");
         assert_eq!(host_header_rewrite, "rewritten");
-        assert_eq!(request_headers.set.get("X-A").map(String::as_str), Some("1"));
+        assert_eq!(
+            request_headers.set.get("X-A").map(String::as_str),
+            Some("1")
+        );
         assert_eq!(enable_http2, Some(false));
         assert_eq!(crt_path, "/a.crt");
         assert_eq!(key_path, "/a.key");
@@ -302,7 +305,9 @@ mod tests {
 
     #[test]
     fn validation_matches_the_upstream_requirements() {
-        assert!(parse(r#"{"type":"unix_domain_socket"}"#).validate().is_err());
+        assert!(parse(r#"{"type":"unix_domain_socket"}"#)
+            .validate()
+            .is_err());
         assert!(parse(r#"{"type":"static_file"}"#).validate().is_err());
         assert!(parse(r#"{"type":"tls2raw"}"#).validate().is_err());
         // socks5 and http_proxy have no required field.

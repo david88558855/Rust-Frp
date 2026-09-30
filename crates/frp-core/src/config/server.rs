@@ -285,10 +285,7 @@ mod tests {
         assert!(!cfg.transport.tcp_mux_enabled());
         assert_eq!(cfg.transport.max_pool_count, 3);
         assert_eq!(cfg.web_server.user, "admin");
-        assert_eq!(
-            cfg.web_server.bind_addr().as_deref(),
-            Some("0.0.0.0:7500")
-        );
+        assert_eq!(cfg.web_server.bind_addr().as_deref(), Some("0.0.0.0:7500"));
     }
 
     #[test]

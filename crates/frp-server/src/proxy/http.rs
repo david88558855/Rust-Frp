@@ -651,11 +651,11 @@ mod tests {
             .vhost_http
             .route("a.example.com", "/api/x", "")
             .is_some());
-        assert!(ctx
-            .vhost_http
-            .route("demo.example.com", "/", "")
-            .is_some());
-        assert_eq!(proxy.remote_addr(), "a.example.com:8080,demo.example.com:8080");
+        assert!(ctx.vhost_http.route("demo.example.com", "/", "").is_some());
+        assert_eq!(
+            proxy.remote_addr(),
+            "a.example.com:8080,demo.example.com:8080"
+        );
 
         proxy.close();
         assert!(ctx.vhost_http.is_empty());

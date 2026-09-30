@@ -104,9 +104,7 @@ impl VisitorRegistry {
 
         let expected = auth::get_auth_key(&listener.secret_key, timestamp);
         if !constant_time_eq(&expected, sign_key) {
-            return Err(anyhow!(
-                "visitor connection of [{proxy_name}] auth failed"
-            ));
+            return Err(anyhow!("visitor connection of [{proxy_name}] auth failed"));
         }
         // `*` allows any user, matching upstream.
         if !listener.allow_users.iter().any(|u| u == user)
@@ -154,9 +152,10 @@ mod tests {
         let client = TcpStream::connect(addr).await.unwrap();
         let (_server, _) = listener.accept().await.unwrap();
         VisitorConn {
-            stream: ServerConn::Direct(Box::new(ServerStream::Plain(
-                PrefixedStream::new(client, Vec::new()),
-            ))),
+            stream: ServerConn::Direct(Box::new(ServerStream::Plain(PrefixedStream::new(
+                client,
+                Vec::new(),
+            )))),
             remote_addr: addr,
             user: user.to_string(),
             use_encryption: false,
@@ -193,9 +192,7 @@ mod tests {
         // Signed with a different secret, so the key itself would match if the
         // server compared it directly.
         let forged = auth::get_auth_key("other", timestamp);
-        let err = reg
-            .validate("p1", &forged, timestamp, "owner")
-            .unwrap_err();
+        let err = reg.validate("p1", &forged, timestamp, "owner").unwrap_err();
         assert!(err.to_string().contains("auth failed"));
     }
 
@@ -203,7 +200,9 @@ mod tests {
     async fn the_secret_key_itself_is_not_accepted_as_the_signature() {
         let reg = VisitorRegistry::new();
         let _rx = reg.register("p1", "sk", vec![], "owner").unwrap();
-        let err = reg.validate("p1", "sk", 1_700_000_000, "owner").unwrap_err();
+        let err = reg
+            .validate("p1", "sk", 1_700_000_000, "owner")
+            .unwrap_err();
         assert!(err.to_string().contains("auth failed"));
     }
 
@@ -229,9 +228,7 @@ mod tests {
         let timestamp = 1_700_000_000;
         let sign_key = auth::get_auth_key("sk", timestamp);
         assert!(reg.validate("p1", &sign_key, timestamp, "alice").is_ok());
-        assert!(reg
-            .validate("p1", &sign_key, timestamp, "owner")
-            .is_err());
+        assert!(reg.validate("p1", &sign_key, timestamp, "owner").is_err());
     }
 
     #[tokio::test]
@@ -247,9 +244,7 @@ mod tests {
     #[tokio::test]
     async fn unknown_proxy_is_rejected() {
         let reg = VisitorRegistry::new();
-        let err = reg
-            .validate("missing", "sig", 1, "u")
-            .unwrap_err();
+        let err = reg.validate("missing", "sig", 1, "u").unwrap_err();
         assert!(err.to_string().contains("no visitor listener"));
     }
 }

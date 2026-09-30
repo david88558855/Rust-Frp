@@ -49,14 +49,12 @@ impl Service {
     /// malformed store file — surface here rather than on the first reconnect
     /// attempt.
     pub fn new(cfg: ClientConfig, config_file: Option<PathBuf>) -> Result<Self> {
-        let token = cfg
-            .token()
-            .context("resolve auth.token for the client")?;
+        let token = cfg.token().context("resolve auth.token for the client")?;
 
         let store = if cfg.store.is_enabled() {
-            Some(Arc::new(Store::open(&cfg.store.path).with_context(|| {
-                format!("open the store at {}", cfg.store.path)
-            })?))
+            Some(Arc::new(Store::open(&cfg.store.path).with_context(
+                || format!("open the store at {}", cfg.store.path),
+            )?))
         } else {
             None
         };
@@ -170,7 +168,15 @@ impl Service {
                     }
                 }
                 Err(e) => {
-                    if first && self.state.current.read().unwrap().common.login_fail_exit_enabled() {
+                    if first
+                        && self
+                            .state
+                            .current
+                            .read()
+                            .unwrap()
+                            .common
+                            .login_fail_exit_enabled()
+                    {
                         return Err(e);
                     }
                     warn!(error = %e, "login attempt failed, retrying");
@@ -183,7 +189,10 @@ impl Service {
                 MAX_RECONNECT_INTERVAL
             };
             let delay = backoff.min(cap);
-            info!(seconds = delay.as_secs_f32(), "waiting before the next attempt");
+            info!(
+                seconds = delay.as_secs_f32(),
+                "waiting before the next attempt"
+            );
             tokio::select! {
                 _ = self.cancel.cancelled() => return Ok(()),
                 _ = tokio::time::sleep(delay) => {}
@@ -228,20 +237,14 @@ impl Service {
             .await
             .context("open the connection to the server")?;
 
-        let handshake = match dial_and_login(
-            &connector,
-            &cfg.common,
-            &self.token,
-            previous_run_id,
-        )
-        .await
-        {
-            Ok(handshake) => handshake,
-            Err(e) => {
-                connector.close();
-                return Err(e);
-            }
-        };
+        let handshake =
+            match dial_and_login(&connector, &cfg.common, &self.token, previous_run_id).await {
+                Ok(handshake) => handshake,
+                Err(e) => {
+                    connector.close();
+                    return Err(e);
+                }
+            };
 
         info!(run_id = %handshake.run_id, "logged in");
 

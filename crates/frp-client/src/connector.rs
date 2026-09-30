@@ -97,8 +97,8 @@ mod tests {
 
     fn client_cfg(json: &str) -> Arc<ClientCommonConfig> {
         let parsed: ClientConfigFile = serde_json::from_str(json).unwrap();
-        let cfg = ClientConfig::from_parts(parsed.common, Vec::new(), Vec::new(), Vec::new())
-            .unwrap();
+        let cfg =
+            ClientConfig::from_parts(parsed.common, Vec::new(), Vec::new(), Vec::new()).unwrap();
         Arc::new(cfg.common)
     }
 

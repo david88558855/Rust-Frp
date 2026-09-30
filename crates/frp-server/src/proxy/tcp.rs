@@ -131,15 +131,12 @@ async fn forward(
     peer: SocketAddr,
 ) -> Result<()> {
     let mut work_conn = ctl.get_work_conn(cancel).await?;
-    work_conn.start(start_work_conn_for(spec, Some(&peer))).await?;
+    work_conn
+        .start(start_work_conn_for(spec, Some(&peer)))
+        .await?;
 
     let raw = work_conn.into_stream();
-    let wrapped = WorkConnStream::new(
-        raw,
-        &ctx.token,
-        spec.use_encryption,
-        spec.use_compression,
-    );
+    let wrapped = WorkConnStream::new(raw, &ctx.token, spec.use_encryption, spec.use_compression);
 
     let (traffic_in, traffic_out) = join_user_stream(wrapped, user_conn).await;
     ctx.metrics.add_traffic_in(&spec.name, traffic_in as i64);

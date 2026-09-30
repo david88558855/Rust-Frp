@@ -130,7 +130,10 @@ pub fn canonical_host(headers: &HeaderMap) -> String {
 /// Username the request is routed by, mirroring upstream `getRequestRouteUser`.
 pub fn route_http_user(headers: &HeaderMap, proxy_mode: bool) -> String {
     if proxy_mode {
-        if let Some(value) = headers.get("proxy-authorization").and_then(|v| v.to_str().ok()) {
+        if let Some(value) = headers
+            .get("proxy-authorization")
+            .and_then(|v| v.to_str().ok())
+        {
             if let Some((user, _)) = parse_basic(value) {
                 return user;
             }
@@ -168,14 +171,18 @@ pub fn check_route_auth(
             .and_then(|v| v.to_str().ok())
     };
     match header.and_then(parse_basic) {
-        Some((user, pass)) => constant_time_eq(user.as_bytes(), username.as_bytes())
-            && constant_time_eq(pass.as_bytes(), password.as_bytes()),
+        Some((user, pass)) => {
+            constant_time_eq(user.as_bytes(), username.as_bytes())
+                && constant_time_eq(pass.as_bytes(), password.as_bytes())
+        }
         None => false,
     }
 }
 
 fn parse_basic(value: &str) -> Option<(String, String)> {
-    let encoded = value.strip_prefix("Basic ").or_else(|| value.strip_prefix("basic "))?;
+    let encoded = value
+        .strip_prefix("Basic ")
+        .or_else(|| value.strip_prefix("basic "))?;
     let decoded = B64.decode(encoded.trim()).ok()?;
     let decoded = String::from_utf8(decoded).ok()?;
     let (user, pass) = decoded.split_once(':')?;

@@ -243,9 +243,8 @@ async fn handle_stream(
             handle_new_work_conn(ctx, stream, msg, remote, local).await
         }
         Message::NewVisitorConn(msg) => {
-            let remote = parse_addr(&remote_addr).unwrap_or_else(|| {
-                std::net::SocketAddr::from(([0, 0, 0, 0], 0))
-            });
+            let remote = parse_addr(&remote_addr)
+                .unwrap_or_else(|| std::net::SocketAddr::from(([0, 0, 0, 0], 0)));
             handle_new_visitor_conn(ctx, stream, msg, remote).await
         }
         other => {
@@ -416,12 +415,10 @@ async fn handle_new_visitor_conn(
             .unwrap_or_default()
     };
 
-    if let Err(e) = ctx.visitors.validate(
-        &msg.proxy_name,
-        &msg.sign_key,
-        msg.timestamp,
-        &user,
-    ) {
+    if let Err(e) = ctx
+        .visitors
+        .validate(&msg.proxy_name, &msg.sign_key, msg.timestamp, &user)
+    {
         warn!(proxy = %msg.proxy_name, error = %e, "visitor connection rejected");
         let resp = Message::NewVisitorConnResp(NewVisitorConnResp {
             proxy_name: msg.proxy_name.clone(),

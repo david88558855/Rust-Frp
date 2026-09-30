@@ -103,7 +103,12 @@ pub fn upgrade_type(headers: &HeaderMap) -> Option<String> {
     if !offers_upgrade {
         return None;
     }
-    let value = headers.get(UPGRADE)?.to_str().ok()?.trim().to_ascii_lowercase();
+    let value = headers
+        .get(UPGRADE)?
+        .to_str()
+        .ok()?
+        .trim()
+        .to_ascii_lowercase();
     if value.is_empty() {
         return None;
     }
@@ -124,8 +129,10 @@ pub async fn forward(
     upgrade_hint: Option<String>,
 ) -> Result<Response<RespBody>> {
     if let Some(proto) = upgrade_hint {
-        req.headers_mut()
-            .insert(CONNECTION, hyper::header::HeaderValue::from_static("Upgrade"));
+        req.headers_mut().insert(
+            CONNECTION,
+            hyper::header::HeaderValue::from_static("Upgrade"),
+        );
         if let Ok(value) = hyper::header::HeaderValue::from_str(&proto) {
             req.headers_mut().insert(UPGRADE, value);
         }
@@ -168,9 +175,10 @@ pub async fn forward(
     if let Some(proto) = upgraded_to {
         // `remove_hop_by_hop` took these away; without them hyper will not
         // switch protocols and the peer would hang waiting for a tunnel.
-        response
-            .headers_mut()
-            .insert(CONNECTION, hyper::header::HeaderValue::from_static("Upgrade"));
+        response.headers_mut().insert(
+            CONNECTION,
+            hyper::header::HeaderValue::from_static("Upgrade"),
+        );
         if let Ok(value) = hyper::header::HeaderValue::from_str(&proto) {
             response.headers_mut().insert(UPGRADE, value);
         }

@@ -298,7 +298,10 @@ mod tests {
         let mut server = Box::new(server) as PluginConn;
 
         let negotiate = tokio::spawn(async move { negotiate(&mut server, "", "", false).await });
-        client.write_all(&[VERSION, 1, METHOD_NO_AUTH]).await.unwrap();
+        client
+            .write_all(&[VERSION, 1, METHOD_NO_AUTH])
+            .await
+            .unwrap();
         let mut response = [0u8; 2];
         client.read_exact(&mut response).await.unwrap();
         assert_eq!(response, [VERSION, METHOD_NO_AUTH]);
@@ -312,7 +315,10 @@ mod tests {
         let mut server = Box::new(server) as PluginConn;
 
         let negotiate = tokio::spawn(async move { negotiate(&mut server, "u", "p", true).await });
-        client.write_all(&[VERSION, 1, METHOD_NO_AUTH]).await.unwrap();
+        client
+            .write_all(&[VERSION, 1, METHOD_NO_AUTH])
+            .await
+            .unwrap();
         let mut response = [0u8; 2];
         client.read_exact(&mut response).await.unwrap();
         assert_eq!(response, [VERSION, METHOD_NONE_ACCEPTABLE]);
@@ -327,7 +333,10 @@ mod tests {
 
         let negotiate =
             tokio::spawn(async move { negotiate(&mut server, "alice", "s3cret", true).await });
-        client.write_all(&[VERSION, 1, METHOD_USER_PASS]).await.unwrap();
+        client
+            .write_all(&[VERSION, 1, METHOD_USER_PASS])
+            .await
+            .unwrap();
         let mut response = [0u8; 2];
         client.read_exact(&mut response).await.unwrap();
         assert_eq!(response, [VERSION, METHOD_USER_PASS]);
@@ -351,7 +360,10 @@ mod tests {
 
         let negotiate =
             tokio::spawn(async move { negotiate(&mut server, "alice", "s3cret", true).await });
-        client.write_all(&[VERSION, 1, METHOD_USER_PASS]).await.unwrap();
+        client
+            .write_all(&[VERSION, 1, METHOD_USER_PASS])
+            .await
+            .unwrap();
         let mut response = [0u8; 2];
         client.read_exact(&mut response).await.unwrap();
 

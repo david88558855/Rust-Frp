@@ -109,9 +109,7 @@ async fn route<B>(req: Request<B>, ctx: Arc<ServerContext>) -> Result<Response<F
     let method = req.method().clone();
 
     match (method, path.as_str()) {
-        (Method::GET, "/") | (Method::GET, "/index.html") => {
-            Ok(html_response(INDEX_HTML))
-        }
+        (Method::GET, "/") | (Method::GET, "/index.html") => Ok(html_response(INDEX_HTML)),
         (Method::GET, "/healthz") => Ok(text_response(StatusCode::OK, "ok\n")),
         (Method::GET, "/metrics") => {
             if !ctx.cfg.enable_prometheus {
@@ -158,15 +156,15 @@ async fn route<B>(req: Request<B>, ctx: Arc<ServerContext>) -> Result<Response<F
                 },
             ))
         }
-        (Method::GET, "/api/clients") => {
-            Ok(json_response(StatusCode::OK, &ctx.metrics.snapshot().clients))
-        }
-        (Method::GET, "/api/proxy") => {
-            Ok(json_response(StatusCode::OK, &ctx.metrics.snapshot().proxies))
-        }
-        (Method::GET, "/api/traffic") => {
-            Ok(json_response(StatusCode::OK, &ctx.metrics.snapshot()))
-        }
+        (Method::GET, "/api/clients") => Ok(json_response(
+            StatusCode::OK,
+            &ctx.metrics.snapshot().clients,
+        )),
+        (Method::GET, "/api/proxy") => Ok(json_response(
+            StatusCode::OK,
+            &ctx.metrics.snapshot().proxies,
+        )),
+        (Method::GET, "/api/traffic") => Ok(json_response(StatusCode::OK, &ctx.metrics.snapshot())),
         (Method::GET, "/api/visitors") => Ok(json_response(
             StatusCode::OK,
             &serde_json::json!({ "count": ctx.visitors.len() }),

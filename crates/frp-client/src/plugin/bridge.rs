@@ -125,11 +125,7 @@ async fn serve(
                 .context("plugin TLS handshake")?;
             // Read the SNI out before boxing: the handler needs it to decide
             // whether the Host of the request it is about to see belongs here.
-            let name = tls
-                .get_ref()
-                .1
-                .server_name()
-                .map(|name| name.to_string());
+            let name = tls.get_ref().1.server_name().map(|name| name.to_string());
             (Box::new(tls), name)
         }
         None => (conn, None),

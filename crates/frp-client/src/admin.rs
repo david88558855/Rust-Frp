@@ -37,7 +37,9 @@ use crate::store::{prepare_proxy, prepare_visitor, Store, StoreError};
 
 type RespBody = http_body_util::combinators::BoxBody<Bytes, hyper::Error>;
 
-const PROXY_TYPES: [&str; 8] = ["tcp", "udp", "http", "https", "tcpmux", "stcp", "sudp", "xtcp"];
+const PROXY_TYPES: [&str; 8] = [
+    "tcp", "udp", "http", "https", "tcpmux", "stcp", "sudp", "xtcp",
+];
 const VISITOR_TYPES: [&str; 3] = ["stcp", "sudp", "xtcp"];
 
 /// Shared, observable state the admin server reads and the service updates.
@@ -81,7 +83,11 @@ fn body(bytes: impl Into<Bytes>) -> RespBody {
         .boxed()
 }
 
-fn response(status: StatusCode, content_type: Option<&'static str>, bytes: Bytes) -> Response<RespBody> {
+fn response(
+    status: StatusCode,
+    content_type: Option<&'static str>,
+    bytes: Bytes,
+) -> Response<RespBody> {
     let mut response = Response::new(body(bytes));
     *response.status_mut() = status;
     if let Some(content_type) = content_type {
@@ -222,9 +228,10 @@ async fn serve(req: Request<Incoming>, state: Arc<AdminState>) -> Response<RespB
     if path == "/" {
         let mut response = Response::new(body(Bytes::new()));
         *response.status_mut() = StatusCode::MOVED_PERMANENTLY;
-        response
-            .headers_mut()
-            .insert(hyper::header::LOCATION, HeaderValue::from_static("/static/"));
+        response.headers_mut().insert(
+            hyper::header::LOCATION,
+            HeaderValue::from_static("/static/"),
+        );
         return response;
     }
     if path.starts_with("/static/") || path == "/favicon.ico" {
@@ -252,7 +259,10 @@ async fn dispatch_subroutes(
     path: &str,
     req: Request<Incoming>,
 ) -> Response<RespBody> {
-    if let Some(name) = path.strip_prefix("/api/proxy/").and_then(|r| r.strip_suffix("/config")) {
+    if let Some(name) = path
+        .strip_prefix("/api/proxy/")
+        .and_then(|r| r.strip_suffix("/config"))
+    {
         return get_proxy_config(state, name);
     }
     if let Some(name) = path
@@ -463,11 +473,7 @@ fn list_store_proxies(state: &AdminState) -> Response<RespBody> {
     let Some(store) = store_or_disabled(state) else {
         return api_error(404, "store disabled: store API is disabled");
     };
-    let mut proxies: Vec<Value> = store
-        .all_proxies()
-        .iter()
-        .map(proxy_definition)
-        .collect();
+    let mut proxies: Vec<Value> = store.all_proxies().iter().map(proxy_definition).collect();
     proxies.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
     ok_json(&json!({ "proxies": proxies }))
 }
@@ -531,7 +537,9 @@ async fn store_proxy_item(
             }
             let cfg = match prepare_proxy(cfg) {
                 Ok(c) => c,
-                Err(e) => return api_error(400, &format!("invalid argument: validation error: {e}")),
+                Err(e) => {
+                    return api_error(400, &format!("invalid argument: validation error: {e}"))
+                }
             };
             if let Err(e) = store.update_proxy(cfg.clone()) {
                 return store_error(e);
@@ -625,7 +633,9 @@ async fn store_visitor_item(
             }
             let cfg = match prepare_visitor(cfg) {
                 Ok(c) => c,
-                Err(e) => return api_error(400, &format!("invalid argument: validation error: {e}")),
+                Err(e) => {
+                    return api_error(400, &format!("invalid argument: validation error: {e}"))
+                }
             };
             if let Err(e) = store.update_visitor(cfg.clone()) {
                 return store_error(e);
@@ -663,10 +673,7 @@ fn proxy_definition(cfg: &ProxyConfig) -> Value {
     let mut map = serde_json::Map::new();
     map.insert("name".into(), json!(cfg.name()));
     map.insert("type".into(), json!(typ));
-    map.insert(
-        typ.into(),
-        serde_json::to_value(cfg).unwrap_or(Value::Null),
-    );
+    map.insert(typ.into(), serde_json::to_value(cfg).unwrap_or(Value::Null));
     Value::Object(map)
 }
 
@@ -675,15 +682,13 @@ fn visitor_definition(cfg: &VisitorConfig) -> Value {
     let mut map = serde_json::Map::new();
     map.insert("name".into(), json!(cfg.name()));
     map.insert("type".into(), json!(typ));
-    map.insert(
-        typ.into(),
-        serde_json::to_value(cfg).unwrap_or(Value::Null),
-    );
+    map.insert(typ.into(), serde_json::to_value(cfg).unwrap_or(Value::Null));
     Value::Object(map)
 }
 
 fn parse_proxy_definition(bytes: &[u8]) -> Result<ProxyConfig, String> {
-    let value: Value = serde_json::from_slice(bytes).map_err(|e| format!("parse JSON error: {e}"))?;
+    let value: Value =
+        serde_json::from_slice(bytes).map_err(|e| format!("parse JSON error: {e}"))?;
     let name = value
         .get("name")
         .and_then(|v| v.as_str())
@@ -725,7 +730,8 @@ fn parse_proxy_definition(bytes: &[u8]) -> Result<ProxyConfig, String> {
 }
 
 fn parse_visitor_definition(bytes: &[u8]) -> Result<VisitorConfig, String> {
-    let value: Value = serde_json::from_slice(bytes).map_err(|e| format!("parse JSON error: {e}"))?;
+    let value: Value =
+        serde_json::from_slice(bytes).map_err(|e| format!("parse JSON error: {e}"))?;
     let name = value
         .get("name")
         .and_then(|v| v.as_str())
