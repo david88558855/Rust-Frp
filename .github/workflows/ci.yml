@@ -123,3 +123,8 @@ jobs:
           python3 tests/interop/plugins.py \
             --rust target/release/rust-frp \
             --upstream frp_0.71.0_linux_amd64
+      - name: Admin API interoperability
+        run: |
+          python3 tests/interop/admin_api.py \
+            --rust target/release/rust-frp \
+            --upstream frp_0.71.0_linux_amd64
