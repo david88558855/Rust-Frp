@@ -214,11 +214,12 @@ def auth_script(admin_port: int) -> dict:
     out: dict = {}
     s, h, b = request(admin_port, "GET", "/api/status", auth=("admin", "secret"))
     out["valid_auth_code"] = s
+    # Both peers respond to bad creds with 401 + WWW-Authenticate: Basic
+    # realm="Restricted" + a plain text body; do not try to JSON-parse it.
     s, h, b = request(
         admin_port, "GET", "/api/status", auth=("admin", "wrong")
     )
     out["bad_auth_code"] = s
-    out["bad_auth_keys"] = sorted(json.loads(b).keys()) if b else []
     out["www_authenticate"] = h.get("www-authenticate", "")
     return out
 
