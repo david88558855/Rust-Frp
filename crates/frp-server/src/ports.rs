@@ -67,13 +67,23 @@ impl PortManager {
             if used.contains_key(&requested) {
                 return Err(anyhow!("port {requested} is already used"));
             }
-            if let Some(res) = self.reserved.lock().unwrap().get(&requested) {
-                if res.owner == owner {
+            // The reservation owner is copied out before the lock is dropped:
+            // holding a `MutexGuard` in an `if let` scrutinee would keep it
+            // alive for the whole block and self-deadlock on the second lock.
+            let reserved_owner = self
+                .reserved
+                .lock()
+                .unwrap()
+                .get(&requested)
+                .map(|r| r.owner.clone());
+            match reserved_owner {
+                Some(owner_of_reservation) if owner_of_reservation == owner => {
                     used.insert(requested, owner.to_string());
                     self.reserved.lock().unwrap().remove(&requested);
                     return Ok(requested);
                 }
-                return Err(anyhow!("port {requested} is reserved"));
+                Some(_) => return Err(anyhow!("port {requested} is reserved")),
+                None => {}
             }
             used.insert(requested, owner.to_string());
             return Ok(requested);
