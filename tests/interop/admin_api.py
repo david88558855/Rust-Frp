@@ -169,11 +169,12 @@ def run_script(admin_port: int) -> dict:
     fp["missing_proxy_code"] = s
     fp["missing_proxy_keys"] = sorted(json.loads(b).keys())
 
+    # Both peers reject a malformed JSON body on the store create endpoint.
     s, _, b = request(
         admin_port,
-        "PUT",
-        "/api/proxy/admin-tcp/config",
-        body=b"this-is-not-toml",
+        "POST",
+        "/api/store/proxies",
+        body=b"this-is-not-json",
         auth=AUTH,
     )
     assert_envelope(b, s)
