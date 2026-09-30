@@ -17,3 +17,7 @@ Thumbs.db
 frps.toml
 frpc.toml
 db.json
+
+# Python bytecode from the test harnesses
+__pycache__/
+*.pyc
