@@ -782,15 +782,20 @@ mod tests {
 
     #[tokio::test]
     async fn plain_connections_bypass_the_handshake() {
+        use tokio::io::AsyncWriteExt;
+
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             let (sock, _) = listener.accept().await.unwrap();
-            let stream = accept_server_stream(sock, None, false).await.unwrap();
+            let mut stream = accept_server_stream(sock, None, false).await.unwrap();
             assert!(!stream.is_tls());
+            let mut buf = [0u8; 4];
+            stream.read_exact(&mut buf).await.unwrap();
+            buf
         });
 
-        let stream = connect_server_stream(
+        let mut stream = connect_server_stream(
             &addr.to_string(),
             &TlsClientConfig::default(),
             "",
@@ -799,7 +804,11 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(stream.kind(), "tcp");
-        drop(stream);
-        server.await.unwrap();
+        // The plaintext path writes nothing ahead of the payload, so the first
+        // byte the server sees is the client's own data.
+        stream.write_all(b"ping").await.unwrap();
+        stream.flush().await.unwrap();
+
+        assert_eq!(server.await.unwrap(), *b"ping");
     }
 }
