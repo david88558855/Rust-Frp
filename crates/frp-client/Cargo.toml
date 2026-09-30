@@ -18,3 +18,17 @@ anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 bytes.workspace = true
+
+# Client plugins speak HTTP to the remote peer and to the local service.
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+base64.workspace = true
+hex.workspace = true
+
+# The `tls2raw`, `https2http` and `https2https` plugins terminate TLS.
+rustls.workspace = true
+tokio-rustls.workspace = true
+# The `http_proxy` plugin checks origin certificates against the public roots
+# when a client sends an `https://` request instead of CONNECT.
+webpki-roots.workspace = true

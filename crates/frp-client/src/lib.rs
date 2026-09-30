@@ -17,24 +17,29 @@
 //! * the `stcp` visitor (see [`visitor`]);
 //! * local service health checks with the upstream register/withdraw cycle
 //!   (see [`health`]);
+//! * proxy plugins, which replace the local service: `unix_domain_socket`,
+//!   `static_file`, `socks5`, `http_proxy`, `http2http`, `http2https`,
+//!   `https2http`, `https2https` and `tls2raw` (see [`plugin`]);
 //! * the reconnect loop with exponential backoff (see [`service`]).
 //!
-//! Not implemented yet (tracked in the repository roadmap): `xtcp` and `sudp`
-//! visitors, proxy plugins, the client store and admin UI, client side
-//! bandwidth limiting, the proxy protocol header, and the `websocket` / `wss`,
-//! `kcp` and `quic` transports.
+//! Not implemented yet (tracked in the repository roadmap): the `xtcp` and
+//! `sudp` visitors, the `virtual_net` plugin, the client store and admin UI,
+//! client side bandwidth limiting, the proxy protocol header, and the
+//! `websocket` / `wss`, `kcp` and `quic` transports.
 
 #![forbid(unsafe_code)]
 
 pub mod connector;
 pub mod control;
 pub mod health;
+pub mod plugin;
 pub mod proxy;
 pub mod service;
 pub mod visitor;
 
 pub use connector::Connector;
 pub use control::{ControlHandle, SessionHandshake};
+pub use plugin::{create as create_plugin, Plugin};
 pub use proxy::{Phase, ProxyManager};
 pub use service::Service;
 

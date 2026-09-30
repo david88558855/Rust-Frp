@@ -244,14 +244,52 @@ transports, none of which are implemented.
   - [x] verified against the official frp `v0.71.0` release in both directions,
         including `useEncryption`/`useCompression`, TLS on either side, and
         `stcp` proxies served by one implementation and visited by the other;
-  - [ ] `xtcp` and `sudp` visitors, proxy plugins, client admin UI and store,
-        client side bandwidth limiting, the proxy protocol header, and the
-        `websocket` / `wss` / `kcp` / `quic` transports.
-- [ ] **M4 — plugins & store**: `unix_domain_socket`, `http_proxy`, `socks5`,
-      `static_file`, `https2http`, `http2https`, `https2https`; client admin UI
-      and persistent proxy store.
+  - [x] proxy plugins: `unix_domain_socket`, `static_file`, `socks5`,
+        `http_proxy`, `http2http`, `http2https`, `https2http`, `https2https`,
+        `tls2raw`;
+  - [ ] `xtcp` and `sudp` visitors, the `virtual_net` plugin, client admin UI
+        and store, client side bandwidth limiting, the proxy protocol header,
+        and the `websocket` / `wss` / `kcp` / `quic` transports.
+- [ ] **M4 — store**: client admin UI and persistent proxy store.
 - [ ] **M5 — extended transports**: KCP, QUIC, wire protocol v2 (AEAD
       handshake), OIDC auth, SSH tunnel gateway.
+
+## Plugins
+
+A plugin replaces a proxy's local service: instead of dialing
+`localIP:localPort`, the proxy hands every work connection to the plugin.
+
+| plugin | what it speaks to the remote peer | backend |
+|---|---|---|
+| `unix_domain_socket` | whatever the socket speaks | a unix socket |
+| `static_file` | HTTP (files from `localPath`) | none |
+| `socks5` | SOCKS5, `CONNECT` only | the named host |
+| `http_proxy` | HTTP proxy, `CONNECT` and absolute-form | the named host |
+| `http2http` | HTTP | HTTP on `localAddr` |
+| `http2https` | HTTP | HTTPS on `localAddr` |
+| `https2http` | HTTPS (`crtPath`/`keyPath`) | HTTP on `localAddr` |
+| `https2https` | HTTPS | HTTPS on `localAddr` |
+| `tls2raw` | TLS | plaintext on `localAddr` |
+
+```toml
+# frpc.toml
+[[proxies]]
+name = "web"
+type = "https"
+customDomains = ["web.example.com"]
+
+[proxies.plugin]
+type = "https2http"
+localAddr = "127.0.0.1:8080"
+crtPath = "server.crt"
+keyPath = "server.key"
+```
+
+Differences from upstream, all response-formatting rather than protocol:
+`static_file` does not gzip and its directory listing is its own markup; the
+finite-range support covers a single range (a multi-range request gets the whole
+entity); and `virtual_net` is not implemented, so a configuration naming it is
+rejected at load with the plugin's name.
 
 CI runs the Rust peers against each other, which catches regressions where both
 sides are ours. Compatibility with upstream is verified separately against a

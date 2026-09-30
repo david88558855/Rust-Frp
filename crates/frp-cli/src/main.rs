@@ -77,6 +77,7 @@ fn print_info() {
     println!("server proxies : tcp, udp, stcp, sudp, http, https");
     println!("client proxies : tcp, udp, http, https, stcp, sudp, tcpmux");
     println!("client visitors: stcp");
+    println!("client plugins : unix_domain_socket, static_file, socks5, http_proxy, http2http, http2https, https2http, https2https, tls2raw");
     println!("message types  : login/login_resp/new_proxy/new_proxy_resp/close_proxy/new_work_conn/req_work_conn/start_work_conn/new_visitor_conn/new_visitor_conn_resp/ping/pong/udp_packet/nat_hole_*");
 }
 

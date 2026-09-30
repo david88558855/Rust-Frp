@@ -401,6 +401,16 @@ impl ClientConfig {
             visitor.base_mut().complete();
         }
 
+        // Validation runs on the completed configuration, the same order
+        // upstream uses: `Complete()` fills in defaults, then the validator
+        // checks the result. A plugin proxy has no `localPort` of its own, so
+        // the check has to happen after `complete()` has decided the rule.
+        for proxy in &proxies {
+            if let Err(e) = proxy.validate() {
+                bail!("proxy [{}]: {e}", proxy.name());
+            }
+        }
+
         // Upstream also refuses to start with duplicate names, because the
         // second registration would silently replace the first.
         for (index, proxy) in proxies.iter().enumerate() {
@@ -431,6 +441,7 @@ impl ClientConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::proxy::{ProxyBaseConfig, TcpProxyConfig};
 
     #[test]
     fn transport_defaults_follow_tcp_mux() {
@@ -564,5 +575,142 @@ mod tests {
         let cfg = ClientConfig::from_parts(common, Vec::new(), Vec::new(), Vec::new()).unwrap();
         assert!(cfg.common.transport.tls.enabled_for("tcp"));
         assert_eq!(cfg.common.transport.tls.server_name, "frps.example.com");
+    }
+
+    /// The plugin block travels inside the flattened base config, so this is
+    /// the test that proves the internally tagged enum survives TOML.
+    #[test]
+    fn a_plugin_survives_the_toml_round_trip() {
+        let text = r#"
+serverAddr = "127.0.0.1"
+
+[[proxies]]
+name = "web"
+type = "tcp"
+remotePort = 6000
+
+[proxies.plugin]
+type = "https2http"
+localAddr = "127.0.0.1:8080"
+crtPath = "server.crt"
+keyPath = "server.key"
+hostHeaderRewrite = "rewritten"
+
+[proxies.plugin.requestHeaders.set]
+X-From = "frpc"
+"#;
+        let file: ClientConfigFile =
+            crate::config::load_config_str(text, crate::config::ConfigFormat::Toml).unwrap();
+        let proxy = &file.proxies[0];
+        let Some(crate::config::PluginConfig::Https2Http {
+            local_addr,
+            host_header_rewrite,
+            request_headers,
+            crt_path,
+            key_path,
+            ..
+        }) = proxy.plugin()
+        else {
+            panic!("plugin was not decoded: {:?}", proxy.plugin());
+        };
+        assert_eq!(local_addr, "127.0.0.1:8080");
+        assert_eq!(host_header_rewrite, "rewritten");
+        assert_eq!(crt_path, "server.crt");
+        assert_eq!(key_path, "server.key");
+        assert_eq!(request_headers.set.get("X-From").map(String::as_str), Some("frpc"));
+    }
+
+    /// A plugin replaces the local service, so `localPort` must not be required.
+    #[test]
+    fn a_plugin_proxy_needs_no_local_port() {
+        let text = r#"
+[[proxies]]
+name = "sh"
+type = "tcp"
+remotePort = 6001
+
+[proxies.plugin]
+type = "unix_domain_socket"
+unixPath = "/run/app.sock"
+"#;
+        let file: ClientConfigFile =
+            crate::config::load_config_str(text, crate::config::ConfigFormat::Toml).unwrap();
+        assert_eq!(file.proxies[0].base().local_port, 0);
+        let cfg = ClientConfig::from_parts(
+            ClientCommonConfig::default(),
+            file.proxies,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        assert_eq!(cfg.proxies[0].plugin().unwrap().plugin_type(), "unix_domain_socket");
+    }
+
+    #[test]
+    fn a_missing_local_port_is_still_refused_without_a_plugin() {
+        let proxy = ProxyConfig::Tcp(TcpProxyConfig {
+            base: ProxyBaseConfig {
+                name: "sh".into(),
+                proxy_type: "tcp".into(),
+                ..Default::default()
+            },
+            remote_port: 6001,
+        });
+        let err = ClientConfig::from_parts(
+            ClientCommonConfig::default(),
+            vec![proxy],
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("localPort"), "{err}");
+    }
+
+    #[test]
+    fn the_unimplemented_virtual_net_plugin_is_refused_by_name() {
+        let text = r#"
+[[proxies]]
+name = "vnet"
+type = "tcp"
+remotePort = 6002
+
+[proxies.plugin]
+type = "virtual_net"
+"#;
+        let file: ClientConfigFile =
+            crate::config::load_config_str(text, crate::config::ConfigFormat::Toml).unwrap();
+        let err = ClientConfig::from_parts(
+            ClientCommonConfig::default(),
+            file.proxies,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("virtual_net"), "{err}");
+    }
+
+    #[test]
+    fn a_plugin_missing_a_required_field_names_the_plugin() {
+        let text = r#"
+[[proxies]]
+name = "web"
+type = "tcp"
+remotePort = 6003
+
+[proxies.plugin]
+type = "static_file"
+"#;
+        let file: ClientConfigFile =
+            crate::config::load_config_str(text, crate::config::ConfigFormat::Toml).unwrap();
+        let err = ClientConfig::from_parts(
+            ClientCommonConfig::default(),
+            file.proxies,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap_err();
+        let err = err.to_string();
+        assert!(err.contains("static_file"), "{err}");
+        assert!(err.contains("localPath"), "{err}");
     }
 }

@@ -9,6 +9,7 @@
 pub mod client;
 pub mod common;
 pub mod load;
+pub mod plugin;
 pub mod proxy;
 pub mod server;
 
@@ -22,6 +23,7 @@ pub use common::{
     TlsConfig, ValueSource, WebServerConfig,
 };
 pub use load::{load_config, load_config_str, ConfigFormat};
+pub use plugin::PluginConfig;
 pub use proxy::{
     HttpProxyConfig, HttpsProxyConfig, PortsRange, ProxyBaseConfig, ProxyConfig, ProxyTransport,
     StcpProxyConfig, SudpProxyConfig, TcpProxyConfig, TcpmuxProxyConfig, UdpProxyConfig,

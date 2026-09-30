@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::common::{HeaderOperations, HttpHeader};
+use super::plugin::PluginConfig;
 
 /// A port or port range from `allowPorts`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,6 +112,10 @@ pub struct ProxyBaseConfig {
     #[serde(rename = "localIP")]
     pub local_ip: String,
     pub local_port: i32,
+    /// When set, `localIP` and `localPort` are ignored and the plugin decides
+    /// what happens to each work connection.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<PluginConfig>,
 }
 
 impl ProxyBaseConfig {
@@ -126,6 +131,30 @@ impl ProxyBaseConfig {
             self.transport.bandwidth_limit_mode = "client".into();
         }
         self.health_check.complete();
+        if let Some(plugin) = self.plugin.as_mut() {
+            plugin.complete();
+        }
+    }
+
+    /// Applies upstream `validateProxyBaseConfigForClient`'s plugin rules.
+    ///
+    /// The one that matters: `localPort` is required *unless* a plugin is
+    /// configured, because a plugin replaces the local service entirely.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.name.is_empty() {
+            return Err("name should not be empty".into());
+        }
+        match self.plugin.as_ref() {
+            Some(plugin) => plugin
+                .validate()
+                .map_err(|e| format!("plugin {}: {e}", plugin.plugin_type())),
+            None => {
+                if self.local_port <= 0 || self.local_port > 65535 {
+                    return Err(format!("localPort: invalid port number: {}", self.local_port));
+                }
+                Ok(())
+            }
+        }
     }
 }
 
@@ -352,6 +381,40 @@ impl ProxyConfig {
             ProxyConfig::Sudp(_) => "sudp",
             ProxyConfig::Xtcp(_) => "xtcp",
         }
+    }
+
+    /// The plugin configured for this proxy, if any.
+    pub fn plugin(&self) -> Option<&PluginConfig> {
+        self.base().plugin.as_ref()
+    }
+
+    /// Checks this proxy the way upstream's `ValidateProxyConfigurerForClient`
+    /// does, plus the proxy-type specific requirements.
+    pub fn validate(&self) -> Result<(), String> {
+        self.base().validate()?;
+        match self {
+            ProxyConfig::Http(c) => {
+                if c.custom_domains.is_empty() && c.subdomain.is_empty() {
+                    return Err("subdomain and custom domains should not be both empty".into());
+                }
+            }
+            ProxyConfig::Https(c) => {
+                if c.custom_domains.is_empty() && c.subdomain.is_empty() {
+                    return Err("subdomain and custom domains should not be both empty".into());
+                }
+            }
+            ProxyConfig::Tcpmux(c) => {
+                if c.custom_domains.is_empty() && c.subdomain.is_empty() {
+                    return Err("subdomain and custom domains should not be both empty".into());
+                }
+                // Upstream accepts exactly one multiplexer today.
+                if c.multiplexer != "httpconnect" {
+                    return Err(format!("not support multiplexer: {}", c.multiplexer));
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 }
 

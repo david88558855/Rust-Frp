@@ -348,7 +348,7 @@ pub async fn start_session(
         out_tx: out_tx.clone(),
     });
 
-    let proxies = ProxyManager::new(ctx.clone(), proxy_cfgs);
+    let proxies = ProxyManager::new(ctx.clone(), proxy_cfgs)?;
     let visitors = VisitorManager::new(ctx.clone(), visitor_cfgs).await?;
     visitors.run();
 

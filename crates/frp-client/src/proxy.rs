@@ -13,6 +13,7 @@
 //! re-registered once it recovers.
 
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -31,6 +32,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::connector::Connector;
+use crate::plugin::{self, ConnInfo, Plugin};
 
 /// How often a wrapper re-examines its own state.
 const STATUS_CHECK_INTERVAL: Duration = Duration::from_secs(3);
@@ -397,12 +399,22 @@ pub struct ProxyWrapper {
     health_notify: Notify,
     cancel: CancellationToken,
     udp: Option<Arc<UdpProxy>>,
+    /// Set when the proxy configures a plugin, in which case the plugin
+    /// replaces the local service entirely.
+    plugin: Option<Arc<dyn Plugin>>,
 }
 
 impl ProxyWrapper {
-    fn new(ctx: Arc<ProxyContext>, cfg: ProxyConfig) -> Self {
+    fn new(ctx: Arc<ProxyContext>, cfg: ProxyConfig) -> Result<Self> {
         let name = cfg.name().to_string();
         let wire_name = crate::add_user_prefix(&ctx.cfg.user, &name);
+        let plugin = match cfg.plugin() {
+            Some(plugin_cfg) => Some(
+                plugin::create(plugin_cfg)
+                    .with_context(|| format!("proxy [{name}] cannot start its plugin"))?,
+            ),
+            None => None,
+        };
         let udp = match &cfg {
             ProxyConfig::Udp(_) | ProxyConfig::Sudp(_) => {
                 Some(Arc::new(UdpProxy::new(ctx.clone(), &cfg)))
@@ -411,7 +423,8 @@ impl ProxyWrapper {
         };
         // A proxy with a health check starts in the failed state so the first
         // successful probe is what registers it with the server.
-        let health_failed = cfg.base().health_check.is_enabled() && cfg.base().local_port > 0;        Self {
+        let health_failed = cfg.base().health_check.is_enabled() && cfg.base().local_port > 0;
+        Ok(Self {
             proxy_type: cfg.proxy_type().to_string(),
             name,
             wire_name,
@@ -428,7 +441,8 @@ impl ProxyWrapper {
             health_notify: Notify::new(),
             cancel: CancellationToken::new(),
             udp,
-        }
+            plugin,
+        })
     }
 
     pub fn phase(&self) -> Phase {
@@ -583,13 +597,32 @@ impl ProxyWrapper {
 
     /// The general TCP path shared by `tcp`, `http`, `https`, `stcp` and
     /// `tcpmux`: dial the local service and copy bytes both ways.
-    async fn forward_tcp(&self, conn: ClientConn, _start: &StartWorkConn) -> Result<()> {
+    ///
+    /// A proxy with a plugin never reaches the dial: the plugin owns the
+    /// connection from here on.
+    async fn forward_tcp(&self, conn: ClientConn, start: &StartWorkConn) -> Result<()> {
         let base = self.cfg.base();
         let wrapped = self.ctx.wrap_work_conn(
             conn,
             base.transport.use_encryption,
             base.transport.use_compression,
         );
+
+        if let Some(plugin) = &self.plugin {
+            let info = ConnInfo {
+                conn: Box::new(wrapped),
+                src_addr: peer_addr(&start.src_addr, start.src_port),
+                dst_addr: peer_addr(&start.dst_addr, start.dst_port),
+            };
+            debug!(
+                proxy = %self.name,
+                plugin = plugin.name(),
+                "handing a work connection to the plugin"
+            );
+            plugin.handle(info).await;
+            return Ok(());
+        }
+
         let addr = format!("{}:{}", base.local_ip, base.local_port);
         let local = tokio::time::timeout(LOCAL_DIAL_TIMEOUT, TcpStream::connect(&addr))
             .await
@@ -606,8 +639,35 @@ impl ProxyWrapper {
         if let Some(udp) = &self.udp {
             udp.close_session();
         }
+        if let Some(plugin) = &self.plugin {
+            plugin.close();
+        }
         let mut state = self.state.lock().unwrap();
         state.phase = Phase::Closed;
+    }
+}
+
+/// Resolves the `src_addr`/`dst_addr` pair the server reports in
+/// `StartWorkConn`.
+///
+/// Upstream only uses them when both halves are present, and treats an
+/// unparsable pair as fatal. Here an unusable pair is simply absent: the only
+/// consumer is the `X-Forwarded-For` the TLS plugins build.
+fn peer_addr(addr: &str, port: u16) -> Option<SocketAddr> {
+    if addr.is_empty() || port == 0 {
+        return None;
+    }
+    let host = if addr.contains(':') && !addr.starts_with('[') {
+        format!("[{addr}]")
+    } else {
+        addr.to_string()
+    };
+    match format!("{host}:{port}").parse() {
+        Ok(addr) => Some(addr),
+        Err(e) => {
+            debug!(addr = %addr, port, error = %e, "ignoring an unusable peer address");
+            None
+        }
     }
 }
 
@@ -618,13 +678,21 @@ pub struct ProxyManager {
 }
 
 impl ProxyManager {
-    pub fn new(ctx: Arc<ProxyContext>, cfgs: &[ProxyConfig]) -> Arc<Self> {
+    pub fn new(ctx: Arc<ProxyContext>, cfgs: &[ProxyConfig]) -> Result<Arc<Self>> {
         let manager = Arc::new(Self {
             ctx,
             proxies: Mutex::new(HashMap::new()),
         });
         for cfg in cfgs {
-            let wrapper = Arc::new(ProxyWrapper::new(manager.ctx.clone(), cfg.clone()));
+            // A plugin that cannot start is a configuration error, not
+            // something to discover later when the first connection arrives.
+            let wrapper = match ProxyWrapper::new(manager.ctx.clone(), cfg.clone()) {
+                Ok(wrapper) => Arc::new(wrapper),
+                Err(e) => {
+                    manager.stop();
+                    return Err(e);
+                }
+            };
             let name = wrapper.name.clone();
             let previous = {
                 let mut proxies = manager.proxies.lock().unwrap();
@@ -636,7 +704,7 @@ impl ProxyManager {
             wrapper.start();
             info!(proxy = %name, kind = %wrapper.proxy_type, "proxy added");
         }
-        manager
+        Ok(manager)
     }
 
     /// Applies a `NewProxyResp` from the server.
@@ -720,7 +788,7 @@ mod tests {
             connector: connector.clone(),
             out_tx,
         });
-        (ProxyManager::new(ctx, &proxies), connector)
+        (ProxyManager::new(ctx, &proxies).unwrap(), connector)
     }
 
     #[test]
@@ -771,7 +839,7 @@ mod tests {
             connector,
             out_tx,
         });
-        let manager = ProxyManager::new(ctx, &proxies);
+        let manager = ProxyManager::new(ctx, &proxies).unwrap();
 
         // The status worker registers the proxy on its first pass.
         let first = tokio::time::timeout(Duration::from_secs(5), out_rx.recv())
@@ -810,7 +878,7 @@ mod tests {
             connector,
             out_tx,
         });
-        let manager = ProxyManager::new(ctx, &proxies);
+        let manager = ProxyManager::new(ctx, &proxies).unwrap();
         match tokio::time::timeout(Duration::from_secs(5), out_rx.recv())
             .await
             .unwrap()

@@ -71,7 +71,7 @@ webpki-roots = "0.26"
 
 # http stack (dashboard / admin api / vhost)
 hyper = { version = "1", features = ["server", "client", "http1", "http2"] }
-hyper-util = { version = "0.1", features = ["server", "client", "client-legacy", "tokio", "http1"] }
+hyper-util = { version = "0.1", features = ["server", "server-auto", "client", "client-legacy", "tokio", "http1", "http2"] }
 http-body-util = "0.1"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query", "form"] }
 tower = "0.5"
