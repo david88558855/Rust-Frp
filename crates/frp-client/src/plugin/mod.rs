@@ -75,10 +75,10 @@ pub fn create(cfg: &PluginConfig) -> Result<Arc<dyn Plugin>> {
         .map_err(anyhow::Error::msg)
         .with_context(|| format!("plugin [{}] options are invalid", cfg.plugin_type()))?;
 
-    Ok(match cfg {
-        PluginConfig::UnixDomainSocket { unix_path } => {
-            unix_domain_socket::UnixDomainSocketPlugin::new(unix_path)? as Arc<dyn Plugin>
-        }
+    let plugin: Arc<dyn Plugin> = match cfg {
+        PluginConfig::UnixDomainSocket { unix_path } => Arc::new(
+            unix_domain_socket::UnixDomainSocketPlugin::new(unix_path)?,
+        ),
         PluginConfig::StaticFile {
             local_path,
             strip_prefix,
@@ -173,7 +173,8 @@ pub fn create(cfg: &PluginConfig) -> Result<Arc<dyn Plugin>> {
         PluginConfig::VirtualNet { .. } => {
             anyhow::bail!("plugin [virtual_net] is not implemented in this build")
         }
-    })
+    };
+    Ok(plugin)
 }
 
 /// Checks HTTP basic credentials from `header`, in constant time.
