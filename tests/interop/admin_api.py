@@ -146,11 +146,11 @@ def run_script(admin_port: int) -> dict:
     fp["status"] = normalise_status(obj)
 
     s, _, b = request(admin_port, "GET", "/api/reload", auth=AUTH)
-    if s == 200:
-        fp["reload_keys"] = sorted(json.loads(b).keys())
-    else:
+    # Upstream's Reload handler returns (nil, nil) which becomes a bare 200 with
+    # an empty body; nothing to parse.
+    fp["reload_code"] = s
+    if s != 200:
         assert_envelope(b, s)
-        fp["reload_code"] = s
 
     s, _, b = request(admin_port, "GET", "/api/proxy/admin-tcp/config", auth=AUTH)
     if s == 200:
