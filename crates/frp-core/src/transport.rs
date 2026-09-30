@@ -25,6 +25,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsAcceptor;
 
+use crate::config::client::TlsClientConfig;
 use crate::config::server::TlsServerConfig;
 
 /// First byte written by frpc when `disableCustomTLSFirstByte` is false.
@@ -284,6 +285,300 @@ pub fn build_server_tls_config(tls: &TlsServerConfig) -> Result<Arc<rustls::Serv
     Ok(Arc::new(config))
 }
 
+/// A stream the client opened to the control port.
+///
+/// `transport.protocol = "tcp"` with `transport.tls.enable` produces the TLS
+/// variant; frpc then wraps either variant in a yamux session when
+/// `transport.tcpMux` is on.
+pub enum ClientStream {
+    Plain(TcpStream),
+    Tls(Box<tokio_rustls::client::TlsStream<TcpStream>>),
+}
+
+impl ClientStream {
+    /// Indicates the wire encoding in use, for logging.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            ClientStream::Plain(_) => "tcp",
+            ClientStream::Tls(_) => "tls",
+        }
+    }
+}
+
+impl AsyncRead for ClientStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            ClientStream::Plain(stream) => Pin::new(stream).poll_read(cx, buf),
+            ClientStream::Tls(stream) => Pin::new(stream.as_mut()).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for ClientStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        match self.get_mut() {
+            ClientStream::Plain(stream) => Pin::new(stream).poll_write(cx, buf),
+            ClientStream::Tls(stream) => Pin::new(stream.as_mut()).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            ClientStream::Plain(stream) => Pin::new(stream).poll_flush(cx),
+            ClientStream::Tls(stream) => Pin::new(stream.as_mut()).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            ClientStream::Plain(stream) => Pin::new(stream).poll_shutdown(cx),
+            ClientStream::Tls(stream) => Pin::new(stream.as_mut()).poll_shutdown(cx),
+        }
+    }
+}
+
+/// Verifier used when the client has no `trustedCaFile`.
+///
+/// Upstream sets `InsecureSkipVerify = true` in that case, which is what makes
+/// a stock frpc work against a stock frps whose certificate is self-signed and
+/// generated at startup. Accepting any certificate is the documented behaviour,
+/// not an oversight, so it is reproduced deliberately.
+#[derive(Debug)]
+struct AcceptAnyServerCert(Arc<rustls::crypto::CryptoProvider>);
+
+impl rustls::client::danger::ServerCertVerifier for AcceptAnyServerCert {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> std::result::Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.0
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
+}
+
+/// Builds the client TLS configuration, mirroring `transport.NewClientTLSConfig`.
+///
+/// An empty `trustedCaFile` disables certificate verification, exactly like the
+/// upstream `InsecureSkipVerify = true`. The name checked against the server
+/// certificate comes from `transport.tls.serverName`, which falls back to the
+/// address dialled; that is applied when the handshake runs, not here.
+pub fn build_client_tls_config(tls: &TlsClientConfig) -> Result<Arc<rustls::ClientConfig>> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let builder = rustls::ClientConfig::builder_with_provider(provider.clone())
+        .with_safe_default_protocol_versions()
+        .context("select TLS protocol versions")?;
+
+    let verifier: Arc<dyn rustls::client::danger::ServerCertVerifier> =
+        if tls.trusted_ca_file.is_empty() {
+            Arc::new(AcceptAnyServerCert(provider))
+        } else {
+            let mut roots = rustls::RootCertStore::empty();
+            for cert in load_certs(&tls.trusted_ca_file)? {
+                roots.add(cert).context("add trusted CA certificate")?;
+            }
+            rustls::client::WebPkiServerVerifier::builder_with_provider(
+                Arc::new(roots),
+                provider,
+            )
+            .build()
+            .context("build server certificate verifier")?
+        };
+
+    let builder = builder
+        .dangerous()
+        .with_custom_certificate_verifier(verifier);
+
+    let config = if !tls.cert_file.is_empty() && !tls.key_file.is_empty() {
+        builder
+            .with_client_auth_cert(load_certs(&tls.cert_file)?, load_private_key(&tls.key_file)?)
+            .context("install client certificate")?
+    } else {
+        builder.with_no_client_auth()
+    };
+    Ok(Arc::new(config))
+}
+
+/// Dials the control port and performs TLS negotiation when configured.
+///
+/// The obfuscated `0x17` byte is written before the handshake starts, matching
+/// the upstream `DialHookCustomTLSHeadByte` hook that runs ahead of the TLS
+/// hook. The server discards it and proceeds with a normal handshake.
+pub async fn connect_server_stream(
+    addr: &str,
+    tls: &TlsClientConfig,
+    local_ip: &str,
+    timeout: Duration,
+) -> Result<ClientStream> {
+    let socket = if local_ip.is_empty() {
+        tokio::net::TcpSocket::new_v4().context("create socket for the control connection")?
+    } else {
+        let bind = format!("{local_ip}:0");
+        let local: std::net::SocketAddr = bind
+            .parse()
+            .with_context(|| format!("parse connectServerLocalIP {local_ip}"))?;
+        let socket = if local.is_ipv4() {
+            tokio::net::TcpSocket::new_v4()
+        } else {
+            tokio::net::TcpSocket::new_v6()
+        }
+        .context("create socket for the control connection")?;
+        socket
+            .bind(local)
+            .with_context(|| format!("bind control connection to {bind}"))?;
+        socket
+    };
+
+    socket
+        .set_nodelay(true)
+        .context("disable Nagle on the control connection")?;
+
+    let peer: std::net::SocketAddr = tokio::net::lookup_host(addr)
+        .await
+        .with_context(|| format!("resolve {addr}"))?
+        .next()
+        .ok_or_else(|| anyhow!("no address resolved for {addr}"))?;
+
+    let stream = tokio::time::timeout(timeout, socket.connect(peer))
+        .await
+        .with_context(|| format!("timed out connecting to {addr}"))?
+        .with_context(|| format!("connect to {addr}"))?;
+
+    if !tls.enabled_for("tcp") {
+        return Ok(ClientStream::Plain(stream));
+    }
+
+    let server_name = if tls.server_name.is_empty() {
+        addr.rsplit_once(':').map(|(host, _)| host).unwrap_or(addr)
+    } else {
+        tls.server_name.as_str()
+    };
+    let config = build_client_tls_config(tls)?;
+    let name = rustls::pki_types::ServerName::try_from(server_name.to_string())
+        .with_context(|| format!("invalid TLS server name {server_name}"))?;
+
+    let mut stream = stream;
+    if tls.custom_tls_first_byte() {
+        // Stops middleboxes from noticing that this is not really TLS.
+        use tokio::io::AsyncWriteExt;
+        stream
+            .write_all(&[FRP_TLS_HEAD_BYTE])
+            .await
+            .context("write the frp TLS first byte")?;
+    }
+
+    let connector = tokio_rustls::TlsConnector::from(config);
+    let tls_stream = tokio::time::timeout(timeout, connector.connect(name, stream))
+        .await
+        .with_context(|| format!("timed out on the TLS handshake with {addr}"))?
+        .context("complete TLS handshake")?;
+    Ok(ClientStream::Tls(Box::new(tls_stream)))
+}
+
+/// A stream the client opened to the control port, with or without TCPMux.
+///
+/// Both the control connection and every work connection go through this type,
+/// so the framing code does not care whether the bytes travel directly or as a
+/// yamux stream.
+pub enum ClientConn {
+    Plain(ClientStream),
+    Mux(crate::yamux::Stream),
+}
+
+impl ClientConn {
+    /// Indicates the wire encoding in use, for logging.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            ClientConn::Plain(stream) => stream.kind(),
+            ClientConn::Mux(_) => "mux",
+        }
+    }
+}
+
+impl AsyncRead for ClientConn {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            ClientConn::Plain(stream) => Pin::new(stream).poll_read(cx, buf),
+            ClientConn::Mux(stream) => Pin::new(stream).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for ClientConn {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        match self.get_mut() {
+            ClientConn::Plain(stream) => Pin::new(stream).poll_write(cx, buf),
+            ClientConn::Mux(stream) => Pin::new(stream).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            ClientConn::Plain(stream) => Pin::new(stream).poll_flush(cx),
+            ClientConn::Mux(stream) => Pin::new(stream).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            ClientConn::Plain(stream) => Pin::new(stream).poll_shutdown(cx),
+            ClientConn::Mux(stream) => Pin::new(stream).poll_shutdown(cx),
+        }
+    }
+}
+
 /// A stream the server hands to a control or work connection handler.
 ///
 /// With `transport.tcpMux` enabled — the default on both sides — every logical
@@ -426,5 +721,79 @@ mod tests {
             Err(e) => panic!("self-signed TLS config failed: {e}"),
         }
         assert!(can_generate_tls());
+    }
+
+    #[test]
+    fn client_tls_config_builds_without_a_ca_file() {
+        let tls = TlsClientConfig {
+            enable: Some(true),
+            ..Default::default()
+        };
+        assert!(build_client_tls_config(&tls).is_ok());
+        assert!(build_client_tls_config(&TlsClientConfig::default()).is_ok());
+    }
+
+    /// Exercises the whole client TLS path against our own server: the
+    /// obfuscated `0x17` byte, the handshake, and — critically — accepting the
+    /// server's self-signed certificate because no `trustedCaFile` is set.
+    #[tokio::test]
+    async fn client_and_server_complete_a_tls_handshake() {
+        use tokio::io::AsyncWriteExt;
+
+        let server_tls = build_server_tls_config(&TlsServerConfig::default()).unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            let (sock, _) = listener.accept().await.unwrap();
+            let mut stream = accept_server_stream(sock, Some(server_tls), false)
+                .await
+                .unwrap();
+            assert!(stream.is_tls(), "the 0x17 byte must be treated as frp TLS");
+            let mut buf = [0u8; 4];
+            stream.read_exact(&mut buf).await.unwrap();
+            buf
+        });
+
+        let tls = TlsClientConfig {
+            enable: Some(true),
+            ..Default::default()
+        };
+        let mut stream = connect_server_stream(
+            &addr.to_string(),
+            &tls,
+            "",
+            Duration::from_secs(10),
+        )
+        .await
+        .unwrap();
+        assert_eq!(stream.kind(), "tls");
+        stream.write_all(b"ping").await.unwrap();
+        stream.flush().await.unwrap();
+
+        assert_eq!(server.await.unwrap(), *b"ping");
+    }
+
+    #[tokio::test]
+    async fn plain_connections_bypass_the_handshake() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (sock, _) = listener.accept().await.unwrap();
+            let stream = accept_server_stream(sock, None, false).await.unwrap();
+            assert!(!stream.is_tls());
+        });
+
+        let stream = connect_server_stream(
+            &addr.to_string(),
+            &TlsClientConfig::default(),
+            "",
+            Duration::from_secs(10),
+        )
+        .await
+        .unwrap();
+        assert_eq!(stream.kind(), "tcp");
+        drop(stream);
+        server.await.unwrap();
     }
 }

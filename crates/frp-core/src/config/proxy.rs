@@ -257,6 +257,86 @@ impl ProxyConfig {
         }
     }
 
+    pub fn base_mut(&mut self) -> &mut ProxyBaseConfig {
+        match self {
+            ProxyConfig::Tcp(c) => &mut c.base,
+            ProxyConfig::Udp(c) => &mut c.base,
+            ProxyConfig::Http(c) => &mut c.base,
+            ProxyConfig::Https(c) => &mut c.base,
+            ProxyConfig::Tcpmux(c) => &mut c.base,
+            ProxyConfig::Stcp(c) => &mut c.base,
+            ProxyConfig::Sudp(c) => &mut c.base,
+            ProxyConfig::Xtcp(c) => &mut c.base,
+        }
+    }
+
+    /// Builds the `NewProxy` message the client sends to register itself.
+    ///
+    /// The field selection mirrors upstream `ProxyBaseConfig.MarshalToMsg`
+    /// plus each concrete `MarshalToMsg`: only the keys that belong to the
+    /// proxy type are populated, which keeps the JSON identical to the Go
+    /// implementation's `omitempty` output.
+    pub fn to_new_proxy(&self) -> crate::msg::NewProxy {
+        let mut msg = crate::msg::NewProxy {
+            proxy_name: self.name().to_string(),
+            proxy_type: self.proxy_type().to_string(),
+            ..Default::default()
+        };
+        let base = self.base();
+        msg.use_encryption = base.transport.use_encryption;
+        msg.use_compression = base.transport.use_compression;
+        msg.bandwidth_limit = base.transport.bandwidth_limit.clone();
+        // Upstream leaves the mode empty when it is the default, to save bytes.
+        if base.transport.bandwidth_limit_mode != "client" {
+            msg.bandwidth_limit_mode = base.transport.bandwidth_limit_mode.clone();
+        }
+        msg.group = base.load_balancer.group.clone();
+        msg.group_key = base.load_balancer.group_key.clone();
+        msg.metas = base.metadatas.clone();
+        msg.annotations = base.annotations.clone();
+
+        match self {
+            ProxyConfig::Tcp(c) => msg.remote_port = c.remote_port,
+            ProxyConfig::Udp(c) => msg.remote_port = c.remote_port,
+            ProxyConfig::Http(c) => {
+                msg.custom_domains = c.custom_domains.clone();
+                msg.sub_domain = c.subdomain.clone();
+                msg.locations = c.locations.clone();
+                msg.host_header_rewrite = c.host_header_rewrite.clone();
+                msg.http_user = c.http_user.clone();
+                msg.http_pwd = c.http_password.clone();
+                msg.headers = c.request_headers.set.clone();
+                msg.response_headers = c.response_headers.set.clone();
+                msg.route_by_http_user = c.route_by_http_user.clone();
+            }
+            ProxyConfig::Https(c) => {
+                msg.custom_domains = c.custom_domains.clone();
+                msg.sub_domain = c.subdomain.clone();
+            }
+            ProxyConfig::Tcpmux(c) => {
+                msg.custom_domains = c.custom_domains.clone();
+                msg.sub_domain = c.subdomain.clone();
+                msg.http_user = c.http_user.clone();
+                msg.http_pwd = c.http_password.clone();
+                msg.route_by_http_user = c.route_by_http_user.clone();
+                msg.multiplexer = c.multiplexer.clone();
+            }
+            ProxyConfig::Stcp(c) => {
+                msg.sk = c.secret_key.clone();
+                msg.allow_users = c.allow_users.clone();
+            }
+            ProxyConfig::Sudp(c) => {
+                msg.sk = c.secret_key.clone();
+                msg.allow_users = c.allow_users.clone();
+            }
+            ProxyConfig::Xtcp(c) => {
+                msg.sk = c.secret_key.clone();
+                msg.allow_users = c.allow_users.clone();
+            }
+        }
+        msg
+    }
+
     pub fn proxy_type(&self) -> &'static str {
         match self {
             ProxyConfig::Tcp(_) => "tcp",

@@ -6,11 +6,17 @@
 //! `natholeAnalysisDataReserveHours`, `clientID` and friends — so those carry an
 //! explicit `serde(rename)` to avoid silently dropping user configuration.
 
+pub mod client;
 pub mod common;
 pub mod load;
 pub mod proxy;
 pub mod server;
 
+pub use client::{
+    AuthClientConfig, ClientCommonConfig, ClientConfig, ClientConfigFile, ClientTransportConfig,
+    StcpVisitorConfig, SudpVisitorConfig, TlsClientConfig, VisitorBaseConfig, VisitorConfig,
+    VisitorTransport, XtcpVisitorConfig,
+};
 pub use common::{
     AuthMethod, AuthScope, HeaderOperations, HttpHeader, HttpPluginOptions, LogConfig, QUICOptions,
     TlsConfig, ValueSource, WebServerConfig,
