@@ -1,0 +1,263 @@
+{
+  "_comment": [
+    "Golden wire frames for every frp control message type, as produced by",
+    "upstream frp v0.71.0's encoder.",
+    "",
+    "Every field in pkg/msg/msg.go carries `json:...,omitempty`, so upstream",
+    "OMITS zero values. A zero valued Login therefore serialises to `{}`, not",
+    "to a long object full of empty strings. That is the single most important",
+    "property this corpus pins, and it is the one a hand written encoder is",
+    "most likely to get wrong.",
+    "",
+    "Each entry pins one frame end to end:",
+    "  type_byte  - the first byte on the wire, as a character",
+    "  body       - the exact JSON payload upstream emits",
+    "  frame_hex  - type_byte || i64 big endian length || body, in hex",
+    "  note       - why this case is interesting",
+    "",
+    "The bodies were derived from frp v0.71.0's struct tags, and",
+    "`regenerate.py` reproduces them by executing frp's own encoder. Run it in",
+    "CI to prove the corpus has not drifted.",
+    "",
+    "These vectors exist because the end to end suite cannot see this layer.",
+    "A self consistent encoder that emits `subDomain` instead of `subdomain`",
+    "keeps both Rust peers talking happily and only breaks against Go. Pin the",
+    "bytes, not the behaviour."
+  ],
+  "version": "0.71.0",
+  "golib_version": "0.8.2",
+  "max_msg_length": 10240,
+  "header_len": 9,
+  "type_bytes": {
+    "Login": "o",
+    "LoginResp": "1",
+    "NewProxy": "p",
+    "NewProxyResp": "2",
+    "CloseProxy": "c",
+    "NewWorkConn": "w",
+    "ReqWorkConn": "r",
+    "StartWorkConn": "s",
+    "NewVisitorConn": "v",
+    "NewVisitorConnResp": "3",
+    "Ping": "h",
+    "Pong": "4",
+    "UDPPacket": "u",
+    "NatHoleVisitor": "i",
+    "NatHoleClient": "n",
+    "NatHoleResp": "m",
+    "NatHoleSid": "5",
+    "NatHoleReport": "6"
+  },
+  "vectors": [
+    {
+      "name": "login/zero",
+      "type_byte": "o",
+      "note": "Every Login field is omitempty, so a zero value serialises to {}. An encoder that emits the full zero filled object is wire wrong, though Go will still decode it.",
+      "body": "{\"client_spec\":{}}",
+      "frame_hex": "6f00000000000000127b22636c69656e745f73706563223a7b7d7d"
+    },
+    {
+      "name": "login/typical",
+      "type_byte": "o",
+      "note": "The shape frpc actually sends: only the fields it sets appear, in struct declaration order. metas is an object; client_spec is always present because it is a struct, but its own fields are omitempty so it renders as {}.",
+      "body": "{\"version\":\"0.71.0\",\"hostname\":\"buildbox\",\"os\":\"linux\",\"arch\":\"amd64\",\"user\":\"runner\",\"privilege_key\":\"f0e1d2c3\",\"timestamp\":1700000000,\"run_id\":\"abcdefghijklmnop\",\"metas\":{\"env\":\"ci\"},\"client_spec\":{}}",
+      "frame_hex": "6f00000000000000ca7b2276657273696f6e223a22302e37312e30222c22686f73746e616d65223a226275696c64626f78222c226f73223a226c696e7578222c2261726368223a22616d643634222c2275736572223a2272756e6e6572222c2270726976696c6567655f6b6579223a226630653164326333222c2274696d657374616d70223a313730303030303030302c2272756e5f6964223a226162636465666768696a6b6c6d6e6f70222c226d65746173223a7b22656e76223a226369227d2c22636c69656e745f73706563223a7b7d7d"
+    },
+    {
+      "name": "login/client_spec",
+      "type_byte": "o",
+      "note": "always_auth_pass is omitempty, so it appears only when true. ClientSpec itself has no omitempty, so it is always emitted as at least {}.",
+      "body": "{\"version\":\"0.71.0\",\"client_spec\":{\"type\":\"test\",\"always_auth_pass\":true}}",
+      "frame_hex": "6f000000000000004a7b2276657273696f6e223a22302e37312e30222c22636c69656e745f73706563223a7b2274797065223a2274657374222c22616c776179735f617574685f70617373223a747275657d7d"
+    },
+    {
+      "name": "login/unicode_metas",
+      "type_byte": "o",
+      "note": "Go's encoding/json escapes non ASCII by default, so the metas keys and values are \\u sequences rather than raw UTF-8. An encoder that emits raw UTF-8 produces different bytes.",
+      "body": "{\"version\":\"0.71.0\",\"metas\":{\"\\u4e3b\\u673a\":\"\\u5317\\u4eac\"},\"client_spec\":{}}",
+      "frame_hex": "6f000000000000004d7b2276657273696f6e223a22302e37312e30222c226d65746173223a7b225c75346533625c7536373361223a225c75353331375c7534656163227d2c22636c69656e745f73706563223a7b7d7d"
+    },
+    {
+      "name": "login/empty_metas_map",
+      "type_byte": "o",
+      "note": "omitempty drops an empty map, so metas disappears entirely rather than showing as {}.",
+      "body": "{\"version\":\"0.71.0\",\"client_spec\":{}}",
+      "frame_hex": "6f00000000000000257b2276657273696f6e223a22302e37312e30222c22636c69656e745f73706563223a7b7d7d"
+    },
+    {
+      "name": "login_resp/ok",
+      "type_byte": "1",
+      "note": "A successful login omits the empty error field.",
+      "body": "{\"version\":\"0.71.0\",\"run_id\":\"abcdefghijklmnop\"}",
+      "frame_hex": "3100000000000000307b2276657273696f6e223a22302e37312e30222c2272756e5f6964223a226162636465666768696a6b6c6d6e6f70227d"
+    },
+    {
+      "name": "login_resp/error",
+      "type_byte": "1",
+      "note": "Login failure: only error is set.",
+      "body": "{\"error\":\"token in login doesn't match token from configuration\"}",
+      "frame_hex": "3100000000000000417b226572726f72223a22746f6b656e20696e206c6f67696e20646f65736e2774206d6174636820746f6b656e2066726f6d20636f6e66696775726174696f6e227d"
+    },
+    {
+      "name": "new_proxy/tcp",
+      "type_byte": "p",
+      "note": "Field names are snake_case on the wire while the TOML is camelCase. remote_port is the only non zero field here.",
+      "body": "{\"proxy_name\":\"tcp-echo\",\"proxy_type\":\"tcp\",\"remote_port\":38910}",
+      "frame_hex": "7000000000000000407b2270726f78795f6e616d65223a227463702d6563686f222c2270726f78795f74797065223a22746370222c2272656d6f74655f706f7274223a33383931307d"
+    },
+    {
+      "name": "new_proxy/http_vhost",
+      "type_byte": "p",
+      "note": "subdomain is the field to watch: the TOML key is subDomain, the wire key is subdomain. custom_domains is a list.",
+      "body": "{\"proxy_name\":\"web\",\"proxy_type\":\"http\",\"custom_domains\":[\"web.test\"]}",
+      "frame_hex": "7000000000000000467b2270726f78795f6e616d65223a22776562222c2270726f78795f74797065223a2268747470222c22637573746f6d5f646f6d61696e73223a5b227765622e74657374225d7d"
+    },
+    {
+      "name": "new_proxy/encrypted_compressed",
+      "type_byte": "p",
+      "note": "Boolean flags render as true only; a false flag is omitted entirely. bandwidth_limit is carried as its raw string.",
+      "body": "{\"proxy_name\":\"secure\",\"proxy_type\":\"tcp\",\"use_encryption\":true,\"use_compression\":true,\"bandwidth_limit\":\"1MB\",\"bandwidth_limit_mode\":\"client\",\"remote_port\":38911}",
+      "frame_hex": "7000000000000000a37b2270726f78795f6e616d65223a22736563757265222c2270726f78795f74797065223a22746370222c227573655f656e6372797074696f6e223a747275652c227573655f636f6d7072657373696f6e223a747275652c2262616e6477696474685f6c696d6974223a22314d42222c2262616e6477696474685f6c696d69745f6d6f6465223a22636c69656e74222c2272656d6f74655f706f7274223a33383931317d"
+    },
+    {
+      "name": "new_proxy_resp/ok",
+      "type_byte": "2",
+      "note": "remote_addr is a bare port when the bind is on all interfaces, matching net.JoinHostPort semantics.",
+      "body": "{\"proxy_name\":\"tcp-echo\",\"remote_addr\":\":38910\"}",
+      "frame_hex": "3200000000000000307b2270726f78795f6e616d65223a227463702d6563686f222c2272656d6f74655f61646472223a223a3338393130227d"
+    },
+    {
+      "name": "new_proxy_resp/error",
+      "type_byte": "2",
+      "note": "Port already in use is the common failure and must survive the round trip verbatim.",
+      "body": "{\"proxy_name\":\"tcp-echo\",\"error\":\"port already used\"}",
+      "frame_hex": "3200000000000000357b2270726f78795f6e616d65223a227463702d6563686f222c226572726f72223a22706f727420616c72656164792075736564227d"
+    },
+    {
+      "name": "close_proxy",
+      "type_byte": "c",
+      "note": "Sent server to client when a proxy is unregistered.",
+      "body": "{\"proxy_name\":\"tcp-echo\"}",
+      "frame_hex": "6300000000000000197b2270726f78795f6e616d65223a227463702d6563686f227d"
+    },
+    {
+      "name": "new_work_conn",
+      "type_byte": "w",
+      "note": "The privilege key is an md5 hex digest and the timestamp is part of the signed payload.",
+      "body": "{\"run_id\":\"abcdefghijklmnop\",\"privilege_key\":\"1c8bfe8f801d79745c4631d09fff36c8\",\"timestamp\":1700000000}",
+      "frame_hex": "7700000000000000677b2272756e5f6964223a226162636465666768696a6b6c6d6e6f70222c2270726976696c6567655f6b6579223a223163386266653866383031643739373435633436333164303966666633366338222c2274696d657374616d70223a313730303030303030307d"
+    },
+    {
+      "name": "req_work_conn",
+      "type_byte": "r",
+      "note": "An empty struct has no fields at all, so it serialises to {} regardless of omitempty.",
+      "body": "{}",
+      "frame_hex": "7200000000000000027b7d"
+    },
+    {
+      "name": "start_work_conn",
+      "type_byte": "s",
+      "note": "src_port and dst_port are unsigned 16 bit on the wire.",
+      "body": "{\"proxy_name\":\"tcp-echo\",\"src_addr\":\"127.0.0.1\",\"dst_addr\":\"192.168.1.10\",\"src_port\":51000,\"dst_port\":38910}",
+      "frame_hex": "73000000000000006c7b2270726f78795f6e616d65223a227463702d6563686f222c227372635f61646472223a223132372e302e302e31222c226473745f61646472223a223139322e3136382e312e3130222c227372635f706f7274223a35313030302c226473745f706f7274223a33383931307d"
+    },
+    {
+      "name": "new_visitor_conn",
+      "type_byte": "v",
+      "note": "The visitor signature covers run_id, proxy_name, the secret key and the timestamp. The zero valued flags are omitted.",
+      "body": "{\"run_id\":\"abcdefghijklmnop\",\"proxy_name\":\"secret\",\"sign_key\":\"deadbeef\",\"timestamp\":1700000000}",
+      "frame_hex": "7600000000000000607b2272756e5f6964223a226162636465666768696a6b6c6d6e6f70222c2270726f78795f6e616d65223a22736563726574222c227369676e5f6b6579223a226465616462656566222c2274696d657374616d70223a313730303030303030307d"
+    },
+    {
+      "name": "new_visitor_conn/flags",
+      "type_byte": "v",
+      "note": "useEncryption and useCompression are negotiated independently for the visitor data path.",
+      "body": "{\"run_id\":\"abcdefghijklmnop\",\"proxy_name\":\"secret\",\"sign_key\":\"deadbeef\",\"timestamp\":1700000000,\"use_encryption\":true,\"use_compression\":true}",
+      "frame_hex": "76000000000000008d7b2272756e5f6964223a226162636465666768696a6b6c6d6e6f70222c2270726f78795f6e616d65223a22736563726574222c227369676e5f6b6579223a226465616462656566222c2274696d657374616d70223a313730303030303030302c227573655f656e6372797074696f6e223a747275652c227573655f636f6d7072657373696f6e223a747275657d"
+    },
+    {
+      "name": "new_visitor_conn_resp/ok",
+      "type_byte": "3",
+      "note": "The reply to an accepted visitor handshake omits the empty error.",
+      "body": "{\"proxy_name\":\"secret\"}",
+      "frame_hex": "3300000000000000177b2270726f78795f6e616d65223a22736563726574227d"
+    },
+    {
+      "name": "new_visitor_conn_resp/error",
+      "type_byte": "3",
+      "note": "A bad sign key is rejected here and must not be silently accepted.",
+      "body": "{\"proxy_name\":\"secret\",\"error\":\"visitor connection request rejected: signature doesn't match\"}",
+      "frame_hex": "33000000000000005e7b2270726f78795f6e616d65223a22736563726574222c226572726f72223a2276697369746f7220636f6e6e656374696f6e20726571756573742072656a65637465643a207369676e617475726520646f65736e2774206d61746368227d"
+    },
+    {
+      "name": "ping",
+      "type_byte": "h",
+      "note": "Heartbeat from client to server, signed with the same privilege key scheme as login.",
+      "body": "{\"privilege_key\":\"1c8bfe8f801d79745c4631d09fff36c8\",\"timestamp\":1700000000}",
+      "frame_hex": "68000000000000004b7b2270726976696c6567655f6b6579223a223163386266653866383031643739373435633436333164303966666633366338222c2274696d657374616d70223a313730303030303030307d"
+    },
+    {
+      "name": "pong",
+      "type_byte": "4",
+      "note": "An empty Pong serialises to {}; an error would carry text and tell the client the session is dead.",
+      "body": "{}",
+      "frame_hex": "3400000000000000027b7d"
+    },
+    {
+      "name": "udp_packet/basic",
+      "type_byte": "u",
+      "note": "The payload is base64 in key c. local_addr is a net.UDPAddr whose IP marshals as a plain string and whose keys are capitalised.",
+      "body": "{\"c\":\"aGVsbG8=\",\"l\":{\"IP\":\"127.0.0.1\",\"Port\":53,\"Zone\":\"\"}}",
+      "frame_hex": "75000000000000003b7b2263223a22614756736247383d222c226c223a7b224950223a223132372e302e302e31222c22506f7274223a35332c225a6f6e65223a22227d7d"
+    },
+    {
+      "name": "udp_packet/both_addrs",
+      "type_byte": "u",
+      "note": "Both address ends set, which is what the server sends back to the client.",
+      "body": "{\"c\":\"AAECAwQ=\",\"l\":{\"IP\":\"10.0.0.2\",\"Port\":41234,\"Zone\":\"\"},\"r\":{\"IP\":\"8.8.8.8\",\"Port\":53,\"Zone\":\"\"}}",
+      "frame_hex": "7500000000000000667b2263223a22414145434177513d222c226c223a7b224950223a2231302e302e302e32222c22506f7274223a34313233342c225a6f6e65223a22227d2c2272223a7b224950223a22382e382e382e38222c22506f7274223a35332c225a6f6e65223a22227d7d"
+    },
+    {
+      "name": "udp_packet/empty_content",
+      "type_byte": "u",
+      "note": "A zero length datagram is legal. content is a []byte with omitempty, so an empty slice disappears rather than rendering as an empty base64 string.",
+      "body": "{\"l\":{\"IP\":\"127.0.0.1\",\"Port\":1,\"Zone\":\"\"}}",
+      "frame_hex": "75000000000000002b7b226c223a7b224950223a223132372e302e302e31222c22506f7274223a312c225a6f6e65223a22227d7d"
+    },
+    {
+      "name": "nat_hole_visitor",
+      "type_byte": "i",
+      "note": "Pre-check negotiation for xtcp. mapped_addrs and assisted_addrs are lists of host:port strings and are omitted when unset.",
+      "body": "{\"transaction_id\":\"txn0000000000001\",\"proxy_name\":\"p2p\",\"pre_check\":true,\"protocol\":\"quic\",\"sign_key\":\"deadbeef\",\"timestamp\":1700000000}",
+      "frame_hex": "6900000000000000887b227472616e73616374696f6e5f6964223a2274786e30303030303030303030303031222c2270726f78795f6e616d65223a22703270222c227072655f636865636b223a747275652c2270726f746f636f6c223a2271756963222c227369676e5f6b6579223a226465616462656566222c2274696d657374616d70223a313730303030303030307d"
+    },
+    {
+      "name": "nat_hole_client",
+      "type_byte": "n",
+      "note": "The client half of the hole punch, carrying the sid assigned by the server.",
+      "body": "{\"transaction_id\":\"txn0000000000001\",\"proxy_name\":\"p2p\",\"sid\":\"0123456789abcdef\"}",
+      "frame_hex": "6e00000000000000517b227472616e73616374696f6e5f6964223a2274786e30303030303030303030303031222c2270726f78795f6e616d65223a22703270222c22736964223a2230313233343536373839616263646566227d"
+    },
+    {
+      "name": "nat_hole_resp",
+      "type_byte": "m",
+      "note": "detect_behavior is a nested struct with no omitempty of its own, so it is present whenever it is set; its inner fields are individually omitempty and drop out when zero.",
+      "body": "{\"transaction_id\":\"txn0000000000001\",\"sid\":\"0123456789abcdef\",\"protocol\":\"quic\",\"candidate_addrs\":[\"1.2.3.4:6000\"],\"detect_behavior\":{\"role\":\"server\"}}",
+      "frame_hex": "6d00000000000000977b227472616e73616374696f6e5f6964223a2274786e30303030303030303030303031222c22736964223a2230313233343536373839616263646566222c2270726f746f636f6c223a2271756963222c2263616e6469646174655f6164647273223a5b22312e322e332e343a36303030225d2c226465746563745f6265686176696f72223a7b22726f6c65223a22736572766572227d7d"
+    },
+    {
+      "name": "nat_hole_sid",
+      "type_byte": "5",
+      "note": "Exchange of the session id between the two clients once the server has paired them.",
+      "body": "{\"transaction_id\":\"txn0000000000001\",\"sid\":\"0123456789abcdef\",\"response\":true,\"nonce\":\"nonce-value\"}",
+      "frame_hex": "3500000000000000647b227472616e73616374696f6e5f6964223a2274786e30303030303030303030303031222c22736964223a2230313233343536373839616263646566222c22726573706f6e7365223a747275652c226e6f6e6365223a226e6f6e63652d76616c7565227d"
+    },
+    {
+      "name": "nat_hole_report",
+      "type_byte": "6",
+      "note": "The outcome report that closes a hole punch attempt.",
+      "body": "{\"sid\":\"0123456789abcdef\",\"success\":true}",
+      "frame_hex": "3600000000000000297b22736964223a2230313233343536373839616263646566222c2273756363657373223a747275657d"
+    }
+  ]
+}

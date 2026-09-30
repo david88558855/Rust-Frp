@@ -47,6 +47,10 @@ jobs:
         run: timeout -k 10 300 cargo test -p frp-server -- --nocapture --test-threads=1
       - name: cargo test (frp-cli)
         run: timeout -k 10 300 cargo test -p frp-cli -- --nocapture --test-threads=1
+      # The wire conformance corpus is an integration test of frp-core, so it
+      # lives outside the per crate loop above and is run explicitly.
+      - name: cargo test (frp-core wire vectors)
+        run: timeout -k 10 300 cargo test -p frp-core --test wire_vectors -- --nocapture
 
   clippy:
     name: clippy
@@ -149,3 +153,33 @@ jobs:
           python3 tests/interop/admin_api.py \
             --rust target/release/rust-frp \
             --upstream frp_0.71.0_linux_amd64
+
+  # The layer beneath interop. Where the differential job proves the two peers
+  # can talk, this one pins the exact bytes each control message encodes to,
+  # by regenerating the corpus with frp's own encoder and diffing.
+  #
+  # It catches the class of mistake neither the unit tests nor the e2e suite
+  # can see: a field name, an ordering or an omitempty decision that is
+  # self-consistent and therefore invisible until it meets Go.
+  wire-vectors:
+    name: wire conformance vectors
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: The Rust encoder reproduces every vector
+        run: cargo test -p frp-core --test wire_vectors -- --nocapture
+      - name: Fetch the reference implementation
+        run: |
+          curl -fsSL -o frp.tar.gz \
+            https://github.com/fatedier/frp/releases/download/v0.71.0/frp_0.71.0_linux_amd64.tar.gz
+          tar xzf frp.tar.gz
+      - name: The corpus still matches frp 0.71.0
+        run: python3 tests/interop/vectors/verify_vectors.py --upstream frp_0.71.0_linux_amd64
+      - name: Regenerate the corpus from frp and diff
+        run: python3 tests/interop/vectors/regenerate.py --check
