@@ -20,8 +20,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: cargo check
         run: cargo check --workspace --all-targets
-      - name: cargo test
-        run: cargo test --workspace
+      # Per-crate invocations with a hard timeout and serial execution: a hung
+      # test would otherwise stall the job, and `--nocapture --test-threads=1`
+      # makes libtest print each test as it starts, so the step log names the
+      # culprit directly.
+      - name: cargo test (frp-core)
+        run: timeout -k 10 300 cargo test -p frp-core -- --nocapture --test-threads=1
+      - name: cargo test (frp-client)
+        run: timeout -k 10 300 cargo test -p frp-client -- --nocapture --test-threads=1
+      - name: cargo test (frp-server)
+        run: timeout -k 10 300 cargo test -p frp-server -- --nocapture --test-threads=1
 
   clippy:
     name: clippy

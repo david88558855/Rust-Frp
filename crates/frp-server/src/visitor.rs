@@ -150,15 +150,12 @@ mod tests {
     use frp_core::transport::PrefixedStream;
 
     fn dummy_conn(user: &str) -> VisitorConn {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        let sock = std::net::TcpStream::connect(addr).unwrap();
-        let _ = listener.accept();
-        sock.set_nonblocking(true).unwrap();
-        let tokio_sock = TcpStream::from_std(sock).unwrap();
+        // An in-memory duplex avoids registering a real socket with the tokio
+        // reactor, which these synchronous tests do not run.
+        let (client, _server) = tokio::io::duplex(1024);
         VisitorConn {
-            stream: ServerStream::Plain(PrefixedStream::new(tokio_sock, Vec::new())),
-            remote_addr: addr,
+            stream: ServerStream::Plain(PrefixedStream::new(client, Vec::new())),
+            remote_addr: "127.0.0.1:12345".parse().unwrap(),
             user: user.to_string(),
             use_encryption: false,
             use_compression: false,
