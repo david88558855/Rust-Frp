@@ -10,7 +10,7 @@
 //!   with a maximum payload of 10240 bytes (see [`codec`]);
 //! * authentication keys are `md5(token || timestamp)` (see [`crypto::auth`]);
 //! * the control connection is wrapped in AES-128-CFB keyed by
-//!   `PBKDF2-HMAC-SHA1(token, "crypto", 64, 16)` immediately after `LoginResp`,
+//!   `PBKDF2-HMAC-SHA1(token, "frp", 64, 16)` immediately after `LoginResp`,
 //!   and work connections use the same cipher behind `transport.useEncryption`
 //!   (see [`crypto::stream`]);
 //! * `useCompression` wraps a stream in the Snappy framed format

@@ -22,7 +22,7 @@ tag `v0.71.0`, not from guesswork. The behaviours deliberately reproduced:
 | Max payload | `10240` bytes (`golib/msg/json.defaultMaxMsgLength`) | `frp_core::codec::MAX_MSG_LENGTH` |
 | Message set | 18 message types, bytes `o 1 p 2 c w r s v 3 h 4 u i n m 5 6` | `frp_core::msg` |
 | Token auth | `hex(md5(token \|\| decimal(timestamp)))` | `frp_core::crypto::auth` |
-| `useEncryption` | AES-128-CFB, key = `PBKDF2-HMAC-SHA1(token, "crypto", 64, 16)`, random 16 byte IV prefix | `frp_core::crypto::cfb` |
+| `useEncryption` | AES-128-CFB, key = `PBKDF2-HMAC-SHA1(token, "frp", 64, 16)`, random 16 byte IV prefix | `frp_core::crypto::cfb` |
 | `useCompression` | Snappy **framed** stream, masked CRC-32C per chunk | `frp_core::crypto::snappy` |
 | Wrapping order | `conn → encrypt → snappy` (compression is the outer layer) | `frp_core::crypto::stream` |
 | TLS | custom first byte `0x17` distinguishes frp TLS from real TLS (`0x16`) | *(next milestone)* |

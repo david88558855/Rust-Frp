@@ -1,7 +1,7 @@
 //! AES-128-CFB stream cipher compatible with `golib/crypto`.
 //!
 //! Upstream derives the key with PBKDF2-HMAC-SHA1 over the raw token using the
-//! salt `"crypto"` and 64 iterations, then prepends a random 16 byte IV to the
+//! salt `"frp"` and 64 iterations, then prepends a random 16 byte IV to the
 //! ciphertext stream. Go's `crypto/cipher.NewCFBEncrypter` implements CFB-128
 //! (full block feedback) used as a stream cipher; the implementation below
 //! reproduces it byte for byte so that a Rust peer can talk to frp and vice
@@ -89,6 +89,51 @@ mod tests {
         let b = derive_key(b"token");
         assert_eq!(a, b);
         assert_ne!(a, derive_key(b"other"));
+    }
+
+    /// Known-answer test pinned to a real frpc → frps session.
+    ///
+    /// The token, IV and ciphertext were captured from frp v0.71.0 talking to
+    /// itself over loopback with `auth.token = "interop-token"`. The expected
+    /// plaintext is the `NewProxy` the client sent immediately after login,
+    /// followed by its first heartbeat.
+    ///
+    /// This is the test that would have caught the salt: deriving with
+    /// `"crypto"`, the value `golib/crypto` declares, produces a stream that
+    /// still round trips against itself and silently matches neither peer.
+    #[test]
+    fn decrypts_a_real_frp_control_frame() {
+        // PBKDF2-HMAC-SHA1("interop-token", "frp", 64, 16).
+        assert_eq!(
+            hex::encode(derive_key(b"interop-token")),
+            "01c025243c806ff9467be251b476d302"
+        );
+
+        let iv = hex::decode("c5ed278354366eda9220cdc1e17ff8a6").unwrap();
+        let mut ct = hex::decode(
+            "f01186d5d620ecaafd791f91f99ccf8e\
+             db4a2f19817e81e3bc9f4060d761e8d3\
+             ad04f57fd2c4abc9d709036b04efdba7\
+             a7534e43d1430b174b704bb35b242313\
+             20a8076a52ee3cbdd4c47a202dd487b0",
+        )
+        .unwrap();
+
+        let mut iv_bytes = [0u8; 16];
+        iv_bytes.copy_from_slice(&iv);
+        Cfb128::new(&derive_key(b"interop-token"), &iv_bytes).decrypt(&mut ct);
+
+        let mut expected = Vec::new();
+        expected.push(b'p');
+        expected.extend_from_slice(&64u64.to_be_bytes());
+        expected.extend_from_slice(
+            br#"{"proxy_name":"tcp-echo","proxy_type":"tcp","remote_port":38910}"#,
+        );
+        expected.push(b'h');
+        expected.extend_from_slice(&2u64.to_be_bytes());
+        expected.extend_from_slice(b"{}");
+
+        assert_eq!(ct, expected);
     }
 
     #[test]

@@ -69,7 +69,7 @@ fn print_info() {
         codec::MAX_MSG_LENGTH
     );
     println!("auth           : md5(token || timestamp)");
-    println!("control crypto : aes-128-cfb, pbkdf2-hmac-sha1(token, \"crypto\", 64, 16)");
+    println!("control crypto : aes-128-cfb, pbkdf2-hmac-sha1(token, \"frp\", 64, 16)");
     println!("work crypto    : same cipher, enabled per proxy by transport.useEncryption");
     println!("compression    : snappy framed stream (crc32c masked)");
     println!("tls            : custom first byte 0x17, real ClientHello 0x16");
