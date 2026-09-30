@@ -73,7 +73,10 @@ fn print_info() {
     println!("work crypto    : same cipher, enabled per proxy by transport.useEncryption");
     println!("compression    : snappy framed stream (crc32c masked)");
     println!("tls            : custom first byte 0x17, real ClientHello 0x16");
-    println!("server proxies : tcp, udp, stcp, sudp");
+    println!("tcpMux         : yamux session over the control socket (both peers default to on)");
+    println!("server proxies : tcp, udp, stcp, sudp, http, https");
+    println!("client proxies : tcp, udp, http, https, stcp, sudp, tcpmux");
+    println!("client visitors: stcp");
     println!("message types  : login/login_resp/new_proxy/new_proxy_resp/close_proxy/new_work_conn/req_work_conn/start_work_conn/new_visitor_conn/new_visitor_conn_resp/ping/pong/udp_packet/nat_hole_*");
 }
 
@@ -111,11 +114,29 @@ fn run_frps(config: &str, verify: bool) -> Result<()> {
 }
 
 fn run_frpc(config: &str, verify: bool) -> Result<()> {
+    let cfg = frp_core::config::ClientConfig::load(config)
+        .with_context(|| format!("load {config}"))?;
+    let service = frp_client::Service::new(cfg)?;
+
     if verify {
-        println!("frpc configuration verification arrives with the client milestone: {config}");
+        println!("configuration is valid:\n{}", service.describe());
         return Ok(());
     }
-    anyhow::bail!("frpc is not implemented yet; see the roadmap in README.md");
+
+    let shutdown = service.shutdown_token();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("build tokio runtime")?;
+    runtime.block_on(async move {
+        tokio::spawn(async move {
+            if tokio::signal::ctrl_c().await.is_ok() {
+                println!("shutting down");
+                shutdown.cancel();
+            }
+        });
+        service.run().await
+    })
 }
 
 fn run_selftest() -> Result<()> {

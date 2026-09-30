@@ -71,10 +71,12 @@ pub struct HealthCheckConfig {
 }
 
 impl HealthCheckConfig {
+    /// Applies the upstream defaults.
+    ///
+    /// `check_type` is deliberately *not* defaulted: upstream documents an
+    /// empty type as "no health check", and the wrapper uses that to decide
+    /// whether to start a monitor at all.
     pub fn complete(&mut self) {
-        if self.check_type.is_empty() {
-            self.check_type = "tcp".into();
-        }
         if self.timeout_seconds == 0 {
             self.timeout_seconds = 3;
         }
@@ -84,9 +86,11 @@ impl HealthCheckConfig {
         if self.interval_seconds == 0 {
             self.interval_seconds = 10;
         }
-        if self.check_type == "http" && self.path.is_empty() {
-            self.path = "/".into();
-        }
+    }
+
+    /// Whether a monitor should run for this proxy.
+    pub fn is_enabled(&self) -> bool {
+        !self.check_type.is_empty()
     }
 }
 
@@ -444,8 +448,23 @@ mod tests {
         base.complete();
         assert_eq!(base.local_ip, "127.0.0.1");
         assert_eq!(base.transport.bandwidth_limit_mode, "client");
-        assert_eq!(base.health_check.check_type, "tcp");
         assert_eq!(base.health_check.interval_seconds, 10);
         assert!(base.is_enabled());
+    }
+
+    #[test]
+    fn an_absent_health_check_stays_disabled() {
+        let mut base = ProxyBaseConfig::default();
+        base.complete();
+        // Upstream treats an empty type as "no health check", so completion
+        // must not fill it in.
+        assert!(!base.health_check.is_enabled());
+        assert_eq!(base.health_check.check_type, "");
+
+        let mut enabled: HealthCheckConfig = serde_json::from_str(r#"{"type":"http"}"#).unwrap();
+        enabled.complete();
+        assert!(enabled.is_enabled());
+        assert_eq!(enabled.timeout_seconds, 3);
+        assert_eq!(enabled.max_failed, 1);
     }
 }

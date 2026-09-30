@@ -454,34 +454,40 @@ pub async fn connect_server_stream(
     local_ip: &str,
     timeout: Duration,
 ) -> Result<ClientStream> {
-    let socket = if local_ip.is_empty() {
-        tokio::net::TcpSocket::new_v4().context("create socket for the control connection")?
-    } else {
-        let bind = format!("{local_ip}:0");
-        let local: std::net::SocketAddr = bind
-            .parse()
-            .with_context(|| format!("parse connectServerLocalIP {local_ip}"))?;
-        let socket = if local.is_ipv4() {
-            tokio::net::TcpSocket::new_v4()
-        } else {
-            tokio::net::TcpSocket::new_v6()
-        }
-        .context("create socket for the control connection")?;
-        socket
-            .bind(local)
-            .with_context(|| format!("bind control connection to {bind}"))?;
-        socket
-    };
-
-    socket
-        .set_nodelay(true)
-        .context("disable Nagle on the control connection")?;
-
+    // Resolve before creating the socket: the address family of the peer
+    // decides which socket to build.
     let peer: std::net::SocketAddr = tokio::net::lookup_host(addr)
         .await
         .with_context(|| format!("resolve {addr}"))?
         .next()
         .ok_or_else(|| anyhow!("no address resolved for {addr}"))?;
+
+    let bind = if local_ip.is_empty() {
+        None
+    } else {
+        let candidate = format!("{local_ip}:0");
+        Some(
+            candidate
+                .parse::<std::net::SocketAddr>()
+                .with_context(|| format!("parse connectServerLocalIP {local_ip}"))?,
+        )
+    };
+
+    let ipv4 = bind.map(|b| b.is_ipv4()).unwrap_or_else(|| peer.is_ipv4());
+    let socket = if ipv4 {
+        tokio::net::TcpSocket::new_v4()
+    } else {
+        tokio::net::TcpSocket::new_v6()
+    }
+    .context("create socket for the control connection")?;
+    if let Some(bind) = bind {
+        socket
+            .bind(bind)
+            .with_context(|| format!("bind control connection to {bind}"))?;
+    }
+    socket
+        .set_nodelay(true)
+        .context("disable Nagle on the control connection")?;
 
     let stream = tokio::time::timeout(timeout, socket.connect(peer))
         .await

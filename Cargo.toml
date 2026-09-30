@@ -59,10 +59,10 @@ snap = "1"
 crc32c = "0.6"
 
 # tls
-# `dangerous_configuration` is required because upstream frpc sets
-# InsecureSkipVerify when `transport.tls.trustedCaFile` is empty, which is the
-# default and what lets a stock frpc talk to a stock frps.
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging", "dangerous_configuration"] }
+# Custom certificate verifiers need no feature flag: rustls 0.23 exposes
+# `ClientConfig::dangerous()` unconditionally, which is what lets frpc mirror
+# upstream's InsecureSkipVerify behaviour.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
 rustls-pemfile = "2"
 rustls-pki-types = "1"
