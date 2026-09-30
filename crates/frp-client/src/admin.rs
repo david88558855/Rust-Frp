@@ -67,11 +67,6 @@ impl AdminState {
             .map(|p| p.base().is_enabled())
             .unwrap_or(false)
     }
-
-    fn server_addr(&self) -> String {
-        let common = &self.current.read().unwrap().common;
-        format!("{}:{}", common.server_addr, common.server_port)
-    }
 }
 
 /// Builds a response body from bytes.
@@ -291,18 +286,13 @@ async fn dispatch_subroutes(
 // --- status ---------------------------------------------------------------
 
 fn status(state: &AdminState) -> Response<RespBody> {
-    let server_addr = state.server_addr();
     let mut by_type: std::collections::BTreeMap<String, Vec<Value>> =
         std::collections::BTreeMap::new();
 
     if let Some(handle) = state.live.lock().unwrap().as_ref() {
         for s in handle.proxy_statuses() {
             let remote_addr = if s.err.is_empty() {
-                if s.proxy_type == "tcp" || s.proxy_type == "udp" {
-                    format!("{server_addr}{}", s.remote_addr)
-                } else {
-                    s.remote_addr.clone()
-                }
+                s.remote_addr.clone()
             } else {
                 String::new()
             };
