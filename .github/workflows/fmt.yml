@@ -1,11 +1,17 @@
 name: Format
 
-# Formatting is enforced separately from CI on purpose: the repository is
+# Formatting is observed on every push but never blocks: the repository is
 # developed without a local Rust toolchain, so patches are written by hand and
-# reviewed for style rather than being reformatted on every push. Run this
-# workflow to get a canonical `cargo fmt` diff (or to apply it locally) before a
-# release.
+# cannot be reformatted before they land. Failing the check would only mean a
+# red tick with no way for the author to see what rustfmt wants.
+#
+# The job therefore always succeeds and publishes the diff it would apply to
+# the run summary. Run it manually with `apply: false` to turn the check into a
+# hard gate (useful right after a formatting sweep), or locally as
+# `cargo fmt --all` to take the canonical form.
 on:
+  push:
+  pull_request:
   workflow_dispatch:
     inputs:
       apply:
@@ -23,8 +29,31 @@ jobs:
         with:
           components: rustfmt
       - name: Check formatting
+        id: check
+        # `apply: true` (the push default) keeps this step green; only a manual
+        # run with `apply: false` lets it fail the job.
+        continue-on-error: ${{ github.event_name != 'workflow_dispatch' || inputs.apply }}
         run: cargo fmt --all -- --check
-        continue-on-error: ${{ inputs.apply }}
+      - name: Record the formatting verdict
+        if: always()
+        run: |
+          {
+            echo "### rustfmt"
+            echo
+            if [ "${{ steps.check.outcome }}" = "success" ]; then
+              echo "The tree is **already canonical**; \`cargo fmt --all\` would change nothing."
+            else
+              echo "The tree is **not canonical**. \`cargo fmt --all\` would change:"
+              echo
+              echo '```'
+              cargo fmt --all
+              git --no-pager diff --stat
+              echo '```'
+              echo
+              echo "Messages such as \`Diff in ... at line N\` are the line numbers"
+              echo "rustfmt actually reports; the full patch is in the step log."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Show the diff to apply
         if: always()
         run: |
